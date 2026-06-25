@@ -72,23 +72,34 @@ def detect_promotion(md_path: Path, base_meta: dict | None, pr_meta: dict) -> bo
     return False
 
 
-def validate_document_id_uniqueness(md_path: Path, all_md_files: list[str], doc_id: str) -> bool:
-    """Check that *doc_id* is unique across all strict documents."""
-    if doc_id is None:
+def validate_strict_filename(md_path: Path) -> bool:
+    """Return True if the filename matches its documentId for strict docs."""
+    path = Path(md_path)
+    if path.parent.name != "strict":
         return True
+    try:
+        meta = parse_frontmatter(path)
+    except (ValueError, FileNotFoundError):
+        return True
+    doc_id = meta.get("documentId")
+    if not doc_id:
+        return True  # no documentId yet will be assigned by CI
+    if path.stem == doc_id:
+        return True
+    print(f"  VALIDATION ERROR: strict filename '{path}' must be '{doc_id}.md'")
+    return False
 
+
+def validate_strict_filenames(all_md_files: list[str]) -> bool:
+    """Validate that all strict docs have filenames matching their documentId."""
+    ok = True
     for f in all_md_files:
         path = Path(f)
         if path.parent.name != "strict":
             continue
-        try:
-            meta = parse_frontmatter(path)
-        except (ValueError, FileNotFoundError):
-            continue
-        if meta.get("documentId") == doc_id and path != md_path:
-            print(f"  ERROR: documentId '{doc_id}' not unique — conflicts with {path}")
-            return False
-    return True
+        if not validate_strict_filename(path):
+            ok = False
+    return ok
 
 
 def update_single_file(md_path: str, repo: str, pr_number: int | None, reviewers: list[str]) -> None:
@@ -194,7 +205,10 @@ def validate_all_document_ids(all_md_files: list[str]) -> bool:
             meta = parse_frontmatter(path)
         except (ValueError, FileNotFoundError):
             continue
-        doc_id = meta.get("documentId", path.stem)
+        doc_id = meta.get("documentId")
+        if not doc_id:
+            # Will be assigned by CI (e.g., first merge after creation)
+            continue
         if doc_id in ids:
             print(f"  VALIDATION ERROR: duplicate documentId '{doc_id}' in {path} and {ids[doc_id]}")
             ok = False
@@ -258,6 +272,12 @@ def main() -> int:
     ).stdout.strip().splitlines()
     if not validate_all_document_ids(all_md_files):
         print("\nValidation failed — duplicate documentIds found.")
+        return 1
+
+    # Step 5b: Validate strict filenames match documentId exactly
+    if not validate_strict_filenames(all_md_files):
+        print("\nValidation failed — some strict docs have incorrect filenames.")
+        print("  Rule: strict docs must be named <documentId>.md (e.g., '1001.md').")
         return 1
 
     # Step 6: Commit and push

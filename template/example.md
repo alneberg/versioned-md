@@ -38,9 +38,9 @@ file and adapt it as a starting point.
 
 ## Document Categories
 
-- **`strict`** (in `docs/strict/`): Full governance, unique 4-digit `documentId`, requires promotion from drafts.
-- **`draft`** (in `docs/drafts/`): In-progress work. `documentId` is auto-assigned on first merge.
-- **`reference`** (in `docs/reference/`): Independent reference docs, less strict governance. Descriptive `documentId` allowed.
+- **`strict`** (in `docs/strict/`): Full governance, unique 4-digit `documentId`, requires promotion from drafts. **Filename must be `<documentId>.md`** (e.g., `1001.md`).
+- **`draft`** (in `docs/drafts/`): In-progress work. `documentId` is auto-assigned on first merge. Descriptive filenames OK.
+- **`reference`** (in `docs/reference/`): Independent reference docs, less strict governance. Descriptive `documentId` and filenames allowed.
 
 ## Document IDs
 
@@ -52,6 +52,7 @@ IDs start at `1001` and are auto-advanced by the CI on each new merge. Reference
 To promote a draft to strict:
 
 1. Move the file from `docs/drafts/` to `docs/strict/`.
-2. The existing `documentId` is carried over (no reassignment needed).
-3. Update frontmatter to include `category: strict` and any missing fields.
-4. Open a PR. A reviewer will approve the promotion.
+2. Rename the file to just its 4-digit `documentId` (e.g., `1001.md`). **This is required — strict filenames must not include a title component.**
+3. The existing `documentId` is carried over (no reassignment needed).
+4. Update frontmatter to include `category: strict` and any missing fields.
+5. Open a PR. A reviewer will approve the promotion.

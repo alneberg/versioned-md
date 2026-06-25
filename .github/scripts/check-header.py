@@ -54,17 +54,21 @@ def _check_md_file(md_path: Path, base_ref: str, pr_ref: str) -> list[str]:
 
     if base_text is None:
         # New file — nothing to compare against, skip protected checks
-        return []
+        # but validate new-file-specific rules below
+        pass
 
-    base_meta, _ = _parse_frontmatter_from_text(base_text)
-    pr_meta, _ = _parse_frontmatter_from_text(pr_text)
+    if base_text is not None:
+        base_meta, _ = _parse_frontmatter_from_text(base_text)
+        pr_meta, _ = _parse_frontmatter_from_text(pr_text)
 
-    # Check protected keys
-    if diff_frontmatter(pr_meta, base_meta, get_protected_keys()):
-        errors.append(
-            f"Protected metadata changed in {md_path}. "
-            f"Only CI should update version, lastUpdated, updatedBy, reviewer, commitHash."
-        )
+        # Check protected keys
+        if diff_frontmatter(pr_meta, base_meta, get_protected_keys()):
+            errors.append(
+                f"Protected metadata changed in {md_path}. "
+                f"Only CI should update version, lastUpdated, updatedBy, reviewer, commitHash."
+            )
+    else:
+        pr_meta, _ = _parse_frontmatter_from_text(pr_text)
 
     # Check category matches parent directory
     category = pr_meta.get("category")
@@ -83,6 +87,16 @@ def _check_md_file(md_path: Path, base_ref: str, pr_ref: str) -> list[str]:
         is_valid, error_msg = validate_document_id_format(doc_id, category)
         if not is_valid:
             errors.append(f"{md_path}: {error_msg}")
+
+    # Validate strict filename matches documentId exactly (no title component)
+    if category == "strict" and doc_id:
+        expected_name = doc_id
+        actual_name = md_path.stem
+        if actual_name != expected_name:
+            errors.append(
+                f"strict filename must match documentId exactly: "
+                f"'{md_path}' has stem '{actual_name}', expected '{expected_name}.md'."
+            )
 
     return errors
 

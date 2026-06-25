@@ -43,8 +43,8 @@ Documents are organized into three categories by directory, with a `category` fi
 
 | Directory | Category | Filename Rules | Special Notes |
 |---|---|---|---|
-| `docs/strict/` | `strict` | Unique across repo, no renaming after first promotion | Full governance, numeric `documentId` |
-| `docs/drafts/` | `draft` | Can change freely | Lightweight, transitional, numeric `documentId` |
+| `docs/strict/` | `strict` | Must be `<documentId>.md` (e.g., `1001.md`) | Full governance, numeric `documentId` |
+| `docs/drafts/` | `draft` | Can change freely (descriptive names OK) | Lightweight, transitional, numeric `documentId` |
 | `docs/reference/` | `reference` | Can change freely | Independent docs, less strict governance |
 
 Frontmatter `category` field:
@@ -82,7 +82,7 @@ category: strict   # must match parent directory (strict, draft, or reference)
 ```
 
 - Chronologically oldest first
-- Companion file lives alongside the markdown file (e.g., `docs/api.md` + `docs/api.meta.json`)
+- Companion file lives alongside the markdown file (e.g., `docs/1001.md` + `docs/1001.meta.json`)
 - Python-friendly naming (`snake_case`) for internal processing
 
 ---
@@ -118,15 +118,15 @@ versioned-md/
 my-docs-repo/
 ├── docs/
 │   ├── strict/
-│   │   ├── getting-started.md
-│   │   ├── getting-started.meta.json
-│   │   ├── api-reference.md
-│   │   ├── api-reference.meta.json
-│   │   ├── deployment.md
-│   │   └── deployment.meta.json
+│   │   ├── 1001.md
+│   │   ├── 1001.meta.json
+│   │   ├── 1002.md
+│   │   ├── 1002.meta.json
+│   │   ├── 1003.md
+│   │   └── 1003.meta.json
 │   ├── drafts/
 │   │   ├── new-module-preview.md        # in-progress, not published
-│   │   └── new-module-meta.json
+│   │   └── new-module-preview.meta.json
 │   └── reference/
 │       ├── faq.md
 │       ├── faq.meta.json
@@ -142,10 +142,13 @@ my-docs-repo/
 A draft is promoted to strict via a dedicated PR:
 
 1. Author opens PR that changes the document's metadata:
-   - Moves file from `docs/drafts/` to `docs/strict/` and renames to match the `documentId`
+   - Moves file from `docs/drafts/` to `docs/strict/` and renames to `<documentId>.md` (e.g., `1001.md`)
    - Changes `category: draft` to `category: strict` in frontmatter
 2. The `documentId` (4-digit numeric) is carried over from the draft — no reassignment needed
-3. `check-header.yml` validates metadata is untouched (author can only add/modify content)
+3. Check-header enforces:
+   - Strict filenames must be `<documentId>.md` with no title component (e.g., `1001.md`, not `1001-system-architecture.md`)
+   - `category` field matches parent directory
+   - Protected metadata is untouched
 4. `update-metadata.yml` on merge:
    - Validates `documentId` uniqueness across all docs (strict + drafts)
    - Validates numeric 4-digit format
@@ -278,12 +281,13 @@ jobs:
 
 ### Routine edit (existing doc)
 
-1. Author edits a `.md` file and opens a PR
+1. Author edits body content of an existing `.md` file. **Protected fields and filename cannot change.**
 2. `check-header.yml` runs:
-   - Fails if `version`, `lastUpdated`, `updatedBy`, `reviewer`, `commitHash`, or `documentId` changed manually in PR
-   - Fails if any `.meta.json` version_history entries changed
-   - Validates `category` matches parent directory
-   - Passes if metadata is untouched (author only edits doc body)
+    - Fails if `version`, `lastUpdated`, `updatedBy`, `reviewer`, `commitHash`, or `documentId` changed manually in PR
+    - Fails if any `.meta.json` version_history entries changed
+    - Fails if strict doc filename no longer matches its `documentId`
+    - Validates `category` matches parent directory
+    - Passes if metadata is untouched (author only edits doc body)
 3. Reviewer(s) approve via GitHub UI
 4. PR merged (using "Create a merge commit" only)
 5. `update-metadata.yml` runs:
@@ -294,17 +298,19 @@ jobs:
    - Writes new metadata to `.md` frontmatter + `.meta.json`
    - Commits back to main
 
-### Draft → Strict promotion
+#### Promotion: Draft → Strict
 
-1. Author moves file from `docs/drafts/` to `docs/strict/`, renames to match `documentId`
-2. Adds missing fields to frontmatter (`category: strict`, `documentId`, `description`, etc.)
-3. Renames the `.meta.json` companion file accordingly
-4. `check-header.yml` runs:
-   - Validates metadata is untouched (author can only add/remove fields when promoting)
-   - Validates `category: strict` matches new path
-   - Fails if `documentId` is not unique across the repo
-5. Reviewer approves the promotion PR
-6. On merge, `update-metadata.yml`:
+1. Author moves file from `docs/drafts/` to `docs/strict/`, renames to `<documentId>.md` (e.g., `1001.md`)
+2. The existing `documentId` (4-digit numeric) is carried over — no reassignment needed
+3. Adds missing fields to frontmatter (`category: strict`, `description`, etc.)
+4. Renames the `.meta.json` companion file accordingly (e.g., `1001.meta.json`)
+5. `check-header.yml` runs:
+    - Validates strict filename matches `documentId` exactly (no title component)
+    - Validates metadata is untouched (author can only add/remove fields)
+    - Validates `category: strict` matches new path
+    - Fails if `documentId` is not unique across the repo
+6. Reviewer approves the promotion PR
+7. On merge, `update-metadata.yml`:
    - Detects it's a promotion (path changed, category is `strict`)
    - Validates `documentId` uniqueness across all docs in repo
    - Creates first `version_history` entry in the new `.meta.json`
