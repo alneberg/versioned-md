@@ -1,0 +1,20 @@
+[project]
+name = "documentation-system"
+version = "0.1.0"
+description = "Automated metadata management for NGI documentation repos"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.4"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lib*"]
