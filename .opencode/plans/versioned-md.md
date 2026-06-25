@@ -1,11 +1,11 @@
-# Documentation System Plan
+# Versioned Markdown (versioned-md) Plan
 
 ## Overview
 A GitHub-based documentation management system for the National Genomics Infrastructure (NGI), Sweden. Manages metadata (version history, reviewers, last-update tracking) via GitHub Actions, with a Python library for reuse across workflows. The markdown docs themselves live in a separate repo. A static HTML output can be produced and hosted flexibly (MkDocs, Starlight, custom server, etc.).
 
 ---
 
-## Repository: `NGI_docs_template` (placeholder name — final name TBD)
+## Repository: `versioned-md`
 
 A shared library + template that provides:
 - Python helpers (`lib/`) for parsing/updating doc metadata
@@ -90,7 +90,7 @@ category: strict   # must match parent directory (strict, draft, or reference)
 ## Directory Structure
 
 ```
-NGI_docs_template/
+versioned-md/
 ├── lib/
 │   ├── __init__.py
 │   ├── metadata.py             # Core module: parse, write, diff, load, bump version
