@@ -6,10 +6,12 @@ A template repository for markdown documentation, developed at the National Geno
 
 ## Purpose
 
-versioned-md enables a few things in addition to simple markdown documents:
+versioned-md enforces versioning on individual markdown documents. The version is a human readable integer but is also tightly coupled to the git commit hash. Additionally the change process for documents is completely piggy-backing on the review process for a pull request in github.
 
+In short, versioned-md enables a few things in addition to simple markdown documents:
+
+- **Versioning of individual documents**: Each document has its own version id, tightly linked to a commit hash.
 - **Reviewer tracking**: Know who approved each document
-- **Versioning of individual documents**: Instead of using releases of the entire documentation repository
 - **Automated governance**: Enforce metadata consistency without manual effort
 - **Stable identifiers**: Unique IDs that survive renames and refactoring
 
@@ -22,10 +24,11 @@ It was developed to utilize the github UI as much as possible, but should in pri
 2. **Open a PR** — the `check-header.yml` workflow validates that protected metadata isn't tampered with
 3. **Review and merge the PR**
 4. **Merge triggers updates** — the `update-metadata.yml` workflow runs on every merge to:
-   - Bump the version number
-   - Record who updated the document and when
-   - Store approved reviewers
-   - Maintain `version_history` in companion `.meta.json` files
+    - Bump the version number
+    - Record who updated the document and when
+    - Store approved reviewers
+    - Track the PR number (in both frontmatter and `.meta.json`)
+    - Maintain `version_history` in companion `.meta.json` files
 5. **Static output** — any MkDocs, Starlight, or custom tooling can consume the frontmatter + `.meta.json` files at will
 
 ## Document Categories
@@ -72,6 +75,7 @@ updatedBy: johannes
 reviewer:
   - sarah
   - mike
+prNumber: "42"
 version: "1"
 commitHash: "a1b2c3d"
 ---
