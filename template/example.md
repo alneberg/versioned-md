@@ -8,6 +8,7 @@ updatedBy: johannes
 reviewer:
   - jane
   - mike
+prNumber: ""
 version: "1"
 commitHash: "a1b2c3d"
 ---
@@ -33,6 +34,7 @@ file and adapt it as a starting point.
 | `lastUpdated` | Date of last metadata update (ISO 8601) |
 | `updatedBy` | GitHub handle of the person who triggered the update |
 | `reviewer` | List of approved reviewers |
+| `prNumber` | PR that was merged (auto-set by CI, empty for direct commits) |
 | `version` | Sequential version number (string to preserve leading zeros) |
 | `commitHash` | Short Git SHA of the merge commit that performed this update |
 

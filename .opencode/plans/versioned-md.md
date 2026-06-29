@@ -32,6 +32,7 @@ updatedBy: johannes              # GitHub handle of person who triggered last bu
 reviewer:                        # list of approved reviewers
   - johannes
   - jane
+prNumber: "42"                   # PR that was merged (auto-set by CI)
 version: "42"                    # sequential version number
 commitHash: "a1b2c3d"            # short commit hash of the merge that updated this
 ---

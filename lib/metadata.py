@@ -10,7 +10,7 @@ import yaml
 
 
 FRONTMATTER_DELIMITERS = ("---",)
-PROTECTED_KEYS = ("version", "lastUpdated", "updatedBy", "reviewer", "commitHash")
+PROTECTED_KEYS = ("version", "lastUpdated", "updatedBy", "reviewer", "commitHash", "prNumber")
 DOCUMENT_KEYS = ("title", "description", "documentId", "category",)
 
 

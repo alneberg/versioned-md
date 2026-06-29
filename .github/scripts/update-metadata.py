@@ -169,6 +169,8 @@ def update_single_file(md_path: str, repo: str, pr_number: int | None, reviewers
     meta["updatedBy"] = author
     meta["reviewer"] = reviewer_list
     meta["commitHash"] = commit_sha
+    if pr_number:
+        meta["prNumber"] = str(pr_number)
 
     write_frontmatter(path, meta)
 
@@ -179,6 +181,7 @@ def update_single_file(md_path: str, repo: str, pr_number: int | None, reviewers
         "updated_by": author,
         "reviewer": reviewer_list,
         "commit_hash": commit_sha,
+        "pr_number": pr_number,
     }
     version_history.append(entry)
 
