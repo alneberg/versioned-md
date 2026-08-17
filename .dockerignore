@@ -1,0 +1,9 @@
+.venv
+.mypy_cache
+.pytest_cache
+__pycache__
+*.pyc
+.git
+opencode.json
+opencode.jsonc
+.opencode
