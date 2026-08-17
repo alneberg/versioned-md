@@ -21,9 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.metadata import (
-    PROTECTED_KEYS,
     bump_version,
-    derive_document_id,
     generate_document_id,
     get_commit_author,
     get_commit_date,
@@ -33,7 +31,6 @@ from lib.metadata import (
     parse_frontmatter,
     save_meta,
     write_frontmatter,
-    validate_document_id_format,
 )
 from lib.reviewers import fetch_reviewers
 

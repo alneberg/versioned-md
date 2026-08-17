@@ -1,20 +1,43 @@
 [project]
-name = "documentation-system"
+name = "versioned-md"
 version = "0.1.0"
-description = "Automated metadata management for NGI documentation repos"
+description = "Automated metadata management for markdown documentation repositories"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31",
+    "jinja2>=3.1",
+    "GitPython>=3.1",
+    "typer>=0.13",
+    "typing-extensions>=4.0",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.4"]
+dev = [
+    "ruff>=0.4",
+]
+
+[project.scripts]
+versioned-md = "versioned_md.cli:app"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
 
 [tool.ruff]
 line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["lib*"]
+include = ["versioned_md*"]

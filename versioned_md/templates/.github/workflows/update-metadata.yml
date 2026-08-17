@@ -1,0 +1,51 @@
+name: Update Document Metadata
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-metadata:
+    name: Update metadata
+    if: >-
+      contains(github.event.head_commit.message, 'Merge pull request') ||
+      contains(github.event.head_commit.message, 'merge branch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify merge method
+        id: verify_merge
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if echo "$COMMIT_MSG" | grep -qE '(Merge pull request #[0-9]+|merge branch)'; then
+            PR_NUM=$(echo "$COMMIT_MSG" | grep -oP '#\K\d+')
+            MERGE_SHA=$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUM --jq '.merge_commit_sha // empty' 2>/dev/null)
+            if [ -z "$MERGE_SHA" ]; then
+              echo "ERROR: PR #$PR_NUM was merged via squash or rebase merge — only 'Create a merge commit' is allowed"
+              exit 1
+            fi
+            echo "OK: PR #$PR_NUM was merged with a merge commit"
+          else
+            echo "Not a merge commit (possibly direct push). Skipping merge method check."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: pip install pyyaml requests
+
+      - name: Update metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/update-metadata.py --repo "${{ github.repository }}"
