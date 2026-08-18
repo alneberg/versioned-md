@@ -279,19 +279,31 @@ class CreateApplication:
 class InitApplication:
     """Application object for 'versioned-md init'."""
 
-    def __init__(self, path: Path, force: bool = False):
+    def __init__(
+        self,
+        path: Path,
+        person_name: str = "",
+        person_handle: str = "",
+        person_initials: str = "",
+        force: bool = False,
+        run_interactive: bool = False,
+    ):
         self.path = Path(path)
+        self.person_name = person_name
+        self.person_handle = person_handle
+        self.person_initials = person_initials
         self.force = force
+        self.run_interactive = run_interactive
 
-    def run(self) -> None:
-        """Initialise the repo with TEMPLATE branch."""
+    def run(self) -> int:
+        """Initialise the repo with TEMPLATE branch and people.json."""
         import git
 
         try:
             repo = git.Repo(self.path)
         except git.InvalidGitRepositoryError:
             log.error(f"{self.path} is not a git repository")
-            sys.exit(1)
+            return 1
 
         has_main = "main" in repo.branches or "main" in repo.refs
         has_template = "TEMPLATE" in repo.branches or "TEMPLATE" in repo.refs
@@ -299,7 +311,7 @@ class InitApplication:
         if has_main and has_template:
             if not self.force:
                 log.info("Template branches (main, TEMPLATE) already exist. Use --force to recreate.")
-                return
+                return 0
             for branch_name in ["main", "TEMPLATE"]:
                 try:
                     branch = repo.branches[branch_name]
@@ -328,3 +340,43 @@ class InitApplication:
             repo.git.checkout(["-b", "main"])
 
         log.info("Template branches initialised.")
+
+        # Gather person data
+        import os
+        import sys
+
+        has_args = bool(self.person_name or self.person_handle or self.person_initials)
+        is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
+
+        if self.run_interactive and not has_args:
+            self.person_name = self._prompt("Person name")
+            self.person_handle = self._prompt("Handle (e.g. github username)")
+            self.person_initials = self._prompt("Initials (e.g. JD)")
+
+        if has_args and not self.run_interactive:
+            pass
+        elif not has_args and not is_tty:
+            log.error("Not running interactively. Provide --person-name, --person-handle, and --person-initials.")
+            return 1
+        elif not has_args and is_tty:
+            self.person_name = self._prompt("Person name")
+            self.person_handle = self._prompt("Handle (e.g. github username)")
+            self.person_initials = self._prompt("Initials (e.g. JD)")
+
+        if not self.person_name or not self.person_handle or not self.person_initials:
+            log.error("All person fields (name, handle, initials) are required.")
+            return 1
+
+        # Write people.json
+        from versioned_md.people import write_people_file
+
+        return write_people_file(self.path, self.person_name, self.person_handle, self.person_initials)
+
+    def _prompt(self, message: str, default: str = "") -> str:
+        """Interactive prompt helper."""
+        if default:
+            prompt_str = f"{message} [{default}]: "
+        else:
+            prompt_str = f"{message}: "
+        value = input(prompt_str).strip()
+        return value or default

@@ -46,21 +46,30 @@ Documents can be promoted from `drafts` → `strict` via a dedicated PR. The CI 
 # Clone and install locally
 git clone https://github.com/your-org/versioned-md.git
 cd versioned-md
-pip install -e .
+uv sync
 
 # Create a new documentation repository
 mkdir my-docs && cd my-docs
-versioned-md init .
+
+# Initialise with an initial person (required for people.json)
+uv run versioned-md init . \
+  --person-name "Jane Doe" \
+  --person-handle "jane" \
+  --person-initials "JD"
 ```
 
 This bootstraps a new repo with:
 - `docs/strict/`, `docs/drafts/`, `docs/reference/` directories
 - A `TEMPLATE` branch containing CI workflows, scripts, and Python utilities
+- `people.json` with your initial person
 - A `main` branch ready for documentation
 
 ```bash
+# Add more people to your team
+uv run versioned-md people-add --name "John Smith" --handle "john" --initials "JS"
+
 # Create your first document
-versioned-md create docs/strict/1001-hello.md \
+uv run versioned-md create docs/strict/1001-hello.md \
   --title "Hello World" \
   --category strict \
   --description "The first document"
@@ -75,14 +84,39 @@ The `TEMPLATE` branch is synced automatically with `versioned-md sync` when CI w
 ## CLI Reference
 
 ```bash
-# Initialize a new documentation repository from the embedded template
-versioned-md init <directory>
+# Initialise template branches and create people.json
+versioned-md init --person-name "Name" --person-handle "handle" --person-initials "XX"
+
+# Add a person to an existing repo
+versioned-md people-add --name "Name" --handle "handle" --initials "XX"
 
 # Create a new document from the embedded template
-versioned-md create <path> --title "Doc Title" --category {strict|drafts|reference} [--description "Desc"]
+versioned-md create <path> --title "Doc Title" --category {strict|drafts|reference}
 
 # Synchronize the TEMPLATE branch with the latest CI workflows from main
-versioned-md sync [--dry-run] [--yes]
+versioned-md sync
+```
+
+### People Management
+
+The `people.json` file tracks team members who author and review documentation.
+
+```bash
+# Non-interactive: supply all fields via flags
+versioned-md people-add --name "Jane Doe" --handle "jane" --initials "JD"
+
+# Interactive: run without flags in a terminal
+versioned-md people-add
+```
+
+When initialising a new repo, the same fields are collected:
+
+```bash
+# Non-interactive
+versioned-md init --person-name "Jane Doe" --person-handle "jane" --person-initials "JD"
+
+# Interactive (TTY)
+versioned-md init
 ```
 
 ## Example Frontmatter
@@ -113,6 +147,7 @@ uv sync                           # install runtime deps + package
 uv pip install -e ".[dev]"        # add ruff
 uv run ruff check .               # lint
 uv run ruff format .              # format
+uv run versioned-md init .        # use the CLI
 ```
 
 ## License

@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from versioned_md.create import CreateApplication, InitApplication
+from versioned_md.people import add_person, validate_people_path
 from versioned_md.sync import SyncApplication
 
 app = typer.Typer(
@@ -65,15 +66,35 @@ def create(
 @app.command("init")
 def init_repo(
     directory: str = typer.Option(".", "--dir", "-d", help="Directory to initialise (default: current)."),
+    person_name: str = typer.Option(None, "--person-name", "-n", help="Initial person name."),
+    person_handle: str = typer.Option(
+        None, "--person-handle", "-h", help="Initial person handle (e.g. github username)."
+    ),
+    person_initials: str = typer.Option(None, "--person-initials", "-i", help="Initial person initials (e.g. JD)."),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing template branches."),
 ):
-    """Initialise template branches (main, TEMPLATE) on an existing repo.
+    """Initialise template branches (main, TEMPLATE) and create people.json.
 
-    Run this on a repository that already has versioned-md infrastructure
-    but was created before this tool existed.
+    Provide --person-name, --person-handle, --person-initials for non-interactive use,
+    or run interactively in a terminal.
     """
-    init_app = InitApplication(Path(directory), force=force)
-    init_app.run()
+    has_args = bool(person_name or person_handle or person_initials)
+    import os
+    import sys
+
+    is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
+    run_interactive = not has_args and is_tty
+
+    init_app = InitApplication(
+        Path(directory),
+        person_name=person_name or "",
+        person_handle=person_handle or "",
+        person_initials=person_initials or "",
+        force=force,
+        run_interactive=run_interactive,
+    )
+    result = init_app.run()
+    sys.exit(result or 0)
 
 
 @app.command("sync")
@@ -96,6 +117,20 @@ def sync(
         create_pr=create_pr,
     )
     sync_app.run()
+
+
+@app.command()
+def people_add(
+    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    name: str = typer.Option(None, "--name", "-n", help="Person name."),
+    handle: str = typer.Option(None, "--handle", "-h", help="Person handle (e.g. github username)."),
+    initials: str = typer.Option(None, "--initials", "-i", help="Person initials (e.g. JD)."),
+):
+    """Add a person to the repository's people.json."""
+    repo_dir = Path(directory)
+    people_path = validate_people_path(repo_dir)
+    result = add_person(people_path, name or "", handle or "", initials or "")
+    sys.exit(result or 0)
 
 
 if __name__ == "__main__":
