@@ -9,7 +9,7 @@ import typer
 
 from versioned_md.create import CreateApplication, InitApplication
 from versioned_md.doc import DocCreate, DocPromote, DocRetire
-from versioned_md.people import add_person, validate_people_path
+from versioned_md.people import add_person, deactivate_person, validate_people_path
 from versioned_md.sync import SyncApplication
 
 app = typer.Typer(
@@ -19,8 +19,10 @@ app = typer.Typer(
 )
 
 doc_app = typer.Typer()
+people_app = typer.Typer()
 
 app.add_typer(doc_app, name="doc", help="Manage documents locally.")
+app.add_typer(people_app, name="people", help="Manage team members in people.json.")
 
 
 @doc_app.command("create")
@@ -234,7 +236,7 @@ def sync(
     sync_app.run()
 
 
-@app.command()
+@people_app.command("add")
 def people_add(
     directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
     name: str = typer.Option(None, "--name", "-n", help="Person name."),
@@ -244,7 +246,28 @@ def people_add(
     """Add a person to the repository's people.json."""
     repo_dir = Path(directory)
     people_path = validate_people_path(repo_dir)
+    has_args = bool(name or handle or initials)
+    is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
+    interactive = not has_args and is_tty
+    if interactive:
+        name = typer.prompt("Name")
+        handle = typer.prompt("Handle (e.g. github username)")
+        initials = typer.prompt("Initials (e.g. JD)")
     result = add_person(people_path, name or "", handle or "", initials or "")
+    sys.exit(result or 0)
+
+
+@people_app.command("deactivate")
+def people_deactivate(
+    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    handle: str = typer.Option(None, "--handle", "-h", help="Person handle (e.g. github username)."),
+):
+    """Deactivate a person in the repository's people.json."""
+    repo_dir = Path(directory)
+    people_path = validate_people_path(repo_dir)
+    if not handle:
+        handle = typer.prompt("Person handle")
+    result = deactivate_person(people_path, handle)
     sys.exit(result or 0)
 
 

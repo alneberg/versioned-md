@@ -72,7 +72,7 @@ uv run versioned-md doc create docs/drafts/hello-world.md \
   --description "The first document"
 
 # Add more people to your team
-uv run versioned-md people-add --name "John Smith" --handle "john" --initials "JS"
+uv run versioned-md people add --name "John Smith" --handle "john" --initials "JS"
 
 # Promote a draft to strict
 uv run versioned-md doc promote docs/drafts/1001-hello-world.md --category strict
@@ -91,12 +91,12 @@ The `TEMPLATE` branch is synced automatically with `versioned-md sync` when CI w
 versioned-md init --person-name "Name" --person-handle "handle" --person-initials "XX"
 
 # Add a person to an existing repo
-versioned-md people-add --name "Name" --handle "handle" --initials "XX"
+versioned-md people add --name "Name" --handle "handle" --initials "XX"
 
-# Create, promote, or retire documents
+# Create, promote, or deactivate documents
 versioned-md doc create [options]    # Create a new document
 versioned-md doc promote [options]   # Promote draft → strict
-versioned-md doc retire [options]    # Retire a document
+versioned-md doc deactivate [options]    # Deactivate a document
 
 # Synchronize the TEMPLATE branch with the latest CI workflows
 versioned-md sync
@@ -113,8 +113,8 @@ versioned-md doc create docs/drafts/my-feature.md --title "My Feature" --categor
 # 2. Promote to strict (CI auto-renames to documentId.md)
 versioned-md doc promote docs/drafts/1001-my-feature.md --category strict
 
-# 3. Retire a document (moves to docs/retired/)
-versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
+# 3. Deactivate a document (moves to docs/deactivated/)
+versioned-md doc deactivate docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 ```
 
 ### Document Lifecycle
@@ -123,7 +123,7 @@ versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 |---|---|---|
 | `doc create` | Create a new document | Writes frontmatter with title, category, auto-assigned documentId |
 | `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
-| `doc retire` | Archive a document | Moves to `docs/retired/`, adds `status: retired` to frontmatter |
+| `doc deactivate` | Archive a document | Moves to `docs/deactivated/`, adds `status: deactivated` to frontmatter |
 
 ### People Management
 
@@ -131,10 +131,13 @@ The `people.json` file tracks team members who author and review documentation.
 
 ```bash
 # Non-interactive: supply all fields via flags
-versioned-md people-add --name "Jane Doe" --handle "jane" --initials "JD"
+versioned-md people add --name "Jane Doe" --handle "jane" --initials "JD"
 
 # Interactive: run without flags in a terminal
-versioned-md people-add
+versioned-md people add
+
+# Deactivate a team member
+versioned-md people deactivate --handle "jane"
 ```
 
 When initialising a new repo, the same fields are collected:

@@ -91,6 +91,24 @@ def add_person(people_path: Path, name: str, handle: str, initials: str) -> int:
     return 0
 
 
+def deactivate_person(people_path: Path, handle: str) -> int:
+    """Deactivate a person by handle."""
+    data = _load_people(people_path)
+
+    for person in data["people"]:
+        if person.get("handle") == handle:
+            if not person.get("active"):
+                log.info(f"Person '{handle}' is already inactive.")
+                return 0
+            person["active"] = False
+            _write_people(people_path, data)
+            log.info(f"Deactivated person: {person['name']} ({handle})")
+            return 0
+
+    log.error(f"No person found with handle '{handle}'.")
+    return 1
+
+
 def list_people(people_path: Path) -> int:
     """List all people in people.json."""
     data = _load_people(people_path)
