@@ -2,7 +2,7 @@
 
 **Automated metadata management for markdown documentation repositories.**
 
-A template repository for markdown documentation, developed at the National Genomics Infrastructure (NGI), Sweden. versioned-md can manage version history, reviewers, and document lifecycle using git repos — forking is all that's needed to use it.
+versioned-md is a CLI tool that bootstraps fully managed documentation repositories with automated metadata handling, version tracking, and review governance.
 
 ## Purpose
 
@@ -16,7 +16,6 @@ In short, versioned-md enables a few things in addition to simple markdown docum
 - **Stable identifiers**: Unique IDs that survive renames and refactoring
 
 The backbone of versioned-md is Github Actions workflows and Python tooling to handle all of that automatically.
-It was developed to utilize the github UI as much as possible, but should in principle be possible to be adapted to other git hosting services.
 
 ## How It Works
 
@@ -41,26 +40,50 @@ It was developed to utilize the github UI as much as possible, but should in pri
 
 Documents can be promoted from `drafts` → `strict` via a dedicated PR. The CI handles the rest.
 
-## What You Get When You Fork
-
-| Component | Description |
-|---|---|
-| `pyproject.toml` | Python project config with `pyyaml` and `requests` |
-| `lib/metadata.py` | Core library: parse/write frontmatter, manage version history, generate document IDs |
-| `lib/reviewers.py` | GitHub API helper to fetch approved reviewers |
-| `.github/scripts/` | CI scripts for header validation and metadata updates |
-| `.github/workflows/` | GitHub Actions: `check-header.yml` (PR blocking) + `update-metadata.yml` (post-merge automation) |
-| `template/example.md` | Complete frontmatter schema reference |
-
-The markdown docs should populate the `docs` directory of the **forked repository** — this repo is just the infrastructure.
-
 ## Quick Start
 
-1. Fork this repository
-2. Clone your fork
-3. Create documentation files in `docs/strict/`, `docs/drafts/`, or `docs/reference/`
-4. Use `template/example.md` as a starting point
-5. Open PRs — metadata is updated automatically on merge
+```bash
+# Clone and install locally
+git clone https://github.com/your-org/versioned-md.git
+cd versioned-md
+pip install -e .
+
+# Create a new documentation repository
+mkdir my-docs && cd my-docs
+versioned-md init .
+```
+
+This bootstraps a new repo with:
+- `docs/strict/`, `docs/drafts/`, `docs/reference/` directories
+- A `TEMPLATE` branch containing CI workflows, scripts, and Python utilities
+- A `main` branch ready for documentation
+
+```bash
+# Create your first document
+versioned-md create docs/strict/1001-hello.md \
+  --title "Hello World" \
+  --category strict \
+  --description "The first document"
+
+# Push to GitHub
+git remote add origin git@github.com:your-org/my-docs.git
+git push -u origin main
+```
+
+The `TEMPLATE` branch is synced automatically with `versioned-md sync` when CI workflows need updating.
+
+## CLI Reference
+
+```bash
+# Initialize a new documentation repository from the embedded template
+versioned-md init <directory>
+
+# Create a new document from the embedded template
+versioned-md create <path> --title "Doc Title" --category {strict|drafts|reference} [--description "Desc"]
+
+# Synchronize the TEMPLATE branch with the latest CI workflows from main
+versioned-md sync [--dry-run] [--yes]
+```
 
 ## Example Frontmatter
 
@@ -83,29 +106,14 @@ commitHash: "a1b2c3d"
 # Document body here...
 ```
 
-See `template/example.md` for the complete field reference.
-
 ## Development
 
-Install dependencies:
-
 ```bash
-pip install -e .
+uv sync                           # install runtime deps + package
+uv pip install -e ".[dev]"        # add ruff
+uv run ruff check .               # lint
+uv run ruff format .              # format
 ```
-
-Run locally for testing:
-
-```bash
-# Check a PR's metadata
-python .github/scripts/check-header.py --base-ref BASE_SHA --pr-ref PR_SHA --file docs/strict/1001.md
-
-# Update metadata (requires GITHUB_TOKEN)
-python .github/scripts/update-metadata.py --repo owner/name
-```
-
-## Origin
-
-Born at the National Genomics Infrastructure (NGI), Sweden, to solve the problem of managing consistent, auditable documentation that is still smooth to update.
 
 ## License
 
