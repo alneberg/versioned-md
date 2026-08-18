@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """CLI entry point for versioned-md."""
 
+import os
 import sys
 from pathlib import Path
 
 import typer
 
 from versioned_md.create import CreateApplication, InitApplication
+from versioned_md.doc import DocCreate, DocPromote, DocRetire
 from versioned_md.people import add_person, validate_people_path
 from versioned_md.sync import SyncApplication
 
@@ -15,6 +17,119 @@ app = typer.Typer(
     help="Automated metadata management for markdown documentation repositories.",
     add_completion=False,
 )
+
+doc_app = typer.Typer()
+
+app.add_typer(doc_app, name="doc", help="Manage documents locally.")
+
+
+@doc_app.command("create")
+def doc_create(
+    path: str = typer.Option("", "--path", "-p", help="Document path (e.g. docs/drafts/my-doc.md)."),
+    title: str = typer.Option("", "--title", "-t", help="Document title."),
+    description: str = typer.Option("", "--description", "-d", help="Document description."),
+    category: str = typer.Option("", "--category", "-c", help="Document category (strict, draft, reference)."),
+    directory: str = typer.Option(".", "--dir", help="Repository directory (default: current)."),
+):
+    """Create a new document with frontmatter."""
+    repo_dir = Path(directory)
+    if not repo_dir.exists():
+        typer.echo(f"Error: Directory '{directory}' not found.", err=True)
+        sys.exit(1)
+    has_args = bool(path or title or category)
+    is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
+    interactive = not has_args and is_tty
+    doc_create = DocCreate(path=path, title=title, category=category, description=description, interactive=interactive)
+    result = doc_create.run(repo_dir)
+    sys.exit(result or 0)
+
+
+@doc_app.command("promote")
+def doc_promote(
+    path: str = typer.Option("", "--path", "-p", help="Document path to promote (e.g. docs/drafts/my-doc.md)."),
+    category: str = typer.Option("", "--category", "-c", help="Target category (default: strict)."),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite target if it exists."),
+    directory: str = typer.Option(".", "--dir", help="Repository directory (default: current)."),
+):
+    """Promote a document from draft to strict."""
+    repo_dir = Path(directory)
+    if not repo_dir.exists():
+        typer.echo(f"Error: Directory '{directory}' not found.", err=True)
+        sys.exit(1)
+    has_args = bool(path or category)
+    is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
+    interactive = not has_args and is_tty
+    result = DocPromote(path=path, category=category, interactive=interactive).run(repo_dir)
+    sys.exit(result or 0)
+
+
+@doc_app.command("retire")
+def doc_retire(
+    path: str = typer.Option("", "--path", "-p", help="Document path to retire (e.g. docs/strict/1001.md)."),
+    reason: str = typer.Option("", "--reason", "-r", help="Reason for retirement."),
+    directory: str = typer.Option(".", "--dir", help="Repository directory (default: current)."),
+):
+    """Retire a document."""
+    repo_dir = Path(directory)
+    if not repo_dir.exists():
+        typer.echo(f"Error: Directory '{directory}' not found.", err=True)
+        sys.exit(1)
+    has_args = bool(path or reason)
+    is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
+    interactive = not has_args and is_tty
+    result = DocRetire(path=path, reason=reason, interactive=interactive).run(repo_dir)
+    sys.exit(result or 0)
+
+
+@app.command()
+def doc(
+    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    invisible: bool = typer.Option(False, "--info", help="Show document summary info."),
+):
+    """Manage documents locally.
+
+    Use subcommands to create, promote (drafts->strict), or retire documents.
+    Operations are applied to the working tree. Push and open a PR to have
+    the CI verify and commit the changes.
+    """
+    repo_dir = Path(directory)
+    if not repo_dir.exists():
+        typer.echo(f"Error: Directory '{directory}' not found.", err=True)
+        sys.exit(1)
+
+    if invisible:
+        # Show document summary
+        from versioned_md.doc import _find_all_md, _parse_frontmatter
+
+        categories = ("strict", "draft", "reference")
+        doc_lists: dict[str, list[dict]] = {cat: [] for cat in categories}
+        for cat in categories:
+            cat_dir = repo_dir / "docs" / cat
+            if not cat_dir.exists():
+                continue
+            for md_file in _find_all_md(cat_dir):
+                try:
+                    meta, _ = _parse_frontmatter(md_file)
+                    doc_lists[cat].append(meta)
+                except Exception:
+                    continue
+
+        for cat in categories:
+            docs = doc_lists[cat]
+            if cat_dir := repo_dir / "docs" / cat:
+                if docs:
+                    typer.echo(f"\n  {cat.upper()} ({len(docs)} documents)")
+                    for meta in docs:
+                        title = meta.get("title", "?")
+                        did = meta.get("documentId", "")
+                        version = meta.get("version", "?")
+                        status = meta.get("status", "active")
+                        status_str = " [retired]" if status == "retired" else ""
+                        typer.echo(f"    {title:<40} @{did or '---':<7} v{version}{status_str}")
+
+        return
+
+    typer.echo("Use 'versioned-md doc <subcommand>' instead. Subcommands: create, promote, retire.")
 
 
 @app.command("create")

@@ -65,14 +65,17 @@ This bootstraps a new repo with:
 - A `main` branch ready for documentation
 
 ```bash
+# Create your first document as a draft
+uv run versioned-md doc create docs/drafts/hello-world.md \
+  --title "Hello World" \
+  --category draft \
+  --description "The first document"
+
 # Add more people to your team
 uv run versioned-md people-add --name "John Smith" --handle "john" --initials "JS"
 
-# Create your first document
-uv run versioned-md create docs/strict/1001-hello.md \
-  --title "Hello World" \
-  --category strict \
-  --description "The first document"
+# Promote a draft to strict
+uv run versioned-md doc promote docs/drafts/1001-hello-world.md --category strict
 
 # Push to GitHub
 git remote add origin git@github.com:your-org/my-docs.git
@@ -90,12 +93,37 @@ versioned-md init --person-name "Name" --person-handle "handle" --person-initial
 # Add a person to an existing repo
 versioned-md people-add --name "Name" --handle "handle" --initials "XX"
 
-# Create a new document from the embedded template
-versioned-md create <path> --title "Doc Title" --category {strict|drafts|reference}
+# Create, promote, or retire documents
+versioned-md doc create [options]    # Create a new document
+versioned-md doc promote [options]   # Promote draft → strict
+versioned-md doc retire [options]    # Retire a document
 
-# Synchronize the TEMPLATE branch with the latest CI workflows from main
+# Synchronize the TEMPLATE branch with the latest CI workflows
 versioned-md sync
 ```
+
+### Quick Start Commands Explained
+
+The typical workflow for managing documents:
+
+```bash
+# 1. Create a draft document (CI auto-assigns a documentId)
+versioned-md doc create docs/drafts/my-feature.md --title "My Feature" --category draft
+
+# 2. Promote to strict (CI auto-renames to documentId.md)
+versioned-md doc promote docs/drafts/1001-my-feature.md --category strict
+
+# 3. Retire a document (moves to docs/retired/)
+versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
+```
+
+### Document Lifecycle
+
+| Command | Purpose | Details |
+|---|---|---|
+| `doc create` | Create a new document | Writes frontmatter with title, category, auto-assigned documentId |
+| `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
+| `doc retire` | Archive a document | Moves to `docs/retired/`, adds `status: retired` to frontmatter |
 
 ### People Management
 
