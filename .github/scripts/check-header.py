@@ -18,15 +18,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.metadata import (
-    PROTECTED_KEYS,
     diff_frontmatter,
-    extract_pr_number_from_commit,
     find_changed_md_refs,
     find_changed_meta_refs,
     get_protected_keys,
-    load_meta,
-    parse_frontmatter,
-    validate_category_in_dir,
     validate_document_id_format,
 )
 
@@ -38,7 +33,7 @@ def files_in_ref(ref: str, pattern: str = "*.md") -> list[str]:
     cmd = ["git", "ls-tree", "-r", "--name-only", ref]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     lines = result.stdout.strip().splitlines()
-    return [l for l in lines if Path(l).match(pattern)]
+    return [line for line in lines if Path(line).match(pattern)]
 
 
 def _check_md_file(md_path: Path, base_ref: str, pr_ref: str) -> list[str]:
@@ -183,6 +178,7 @@ def _git_show(ref: str, path: str) -> str | None:
 def _parse_frontmatter_from_text(text: str) -> tuple[dict, str]:
     """Minimal frontmatter splitter (mirrors lib.metadata internals)."""
     import re
+
     import yaml
 
     if not text.startswith("---\n") and not text.startswith("---\r\n"):

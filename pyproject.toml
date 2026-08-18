@@ -31,12 +31,14 @@ package = true
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+exclude = ["versioned_md/templates/", ".ruff_cache/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+".github/scripts/*.py" = ["ALL"]
 
 [tool.setuptools.packages.find]
 where = ["."]

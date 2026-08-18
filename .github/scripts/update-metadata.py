@@ -21,9 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.metadata import (
-    PROTECTED_KEYS,
     bump_version,
-    derive_document_id,
     generate_document_id,
     get_commit_author,
     get_commit_date,
@@ -33,7 +31,6 @@ from lib.metadata import (
     parse_frontmatter,
     save_meta,
     write_frontmatter,
-    validate_document_id_format,
 )
 from lib.reviewers import fetch_reviewers
 
@@ -56,7 +53,7 @@ def changed_md_files(base_ref: str, head_ref: str) -> list[str]:
     if result.returncode != 0:
         return []
     lines = result.stdout.strip().splitlines()
-    return [l for l in lines if l.endswith(".md")]
+    return [line for line in lines if line.endswith(".md")]
 
 
 def detect_promotion(md_path: Path, base_meta: dict | None, pr_meta: dict) -> bool:
@@ -68,14 +65,8 @@ def detect_promotion(md_path: Path, base_meta: dict | None, pr_meta: dict) -> bo
     old_category = base_meta.get("category", "")
     new_category = pr_meta.get("category", "")
 
-    old_dir = md_path.parent.name
-    new_dir = md_path.parent.name  # same path in working tree after merge
-
     # Promotion: was in drafts, now in strict
-    if old_category == "draft" and new_category == "strict":
-        return True
-
-    return False
+    return old_category == "draft" and new_category == "strict"
 
 
 def validate_strict_filename(md_path: Path) -> bool:
