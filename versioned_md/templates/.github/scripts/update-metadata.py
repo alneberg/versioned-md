@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 # Allow importing from parent directory (scripts/ → lib/)
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from lib.metadata import (
     bump_version,

@@ -297,7 +297,14 @@ class InitApplication:
 
     def run(self) -> int:
         """Initialise the repo with TEMPLATE branch and people.json."""
+        import os
+        import subprocess
+        import sys
+
         import git
+
+        def _git(*args: str) -> subprocess.CompletedProcess[bytes]:
+            return subprocess.run(["git"] + list(args), cwd=self.path, capture_output=True)
 
         try:
             repo = git.Repo(self.path)
@@ -308,43 +315,69 @@ class InitApplication:
         has_main = "main" in repo.branches or "main" in repo.refs
         has_template = "TEMPLATE" in repo.branches or "TEMPLATE" in repo.refs
 
+        # For empty repos (no commits yet), gitpython won't see unborn branches.
+        # Check if HEAD points to main as a fallback.
+        try:
+            if repo.head.ref and repo.head.ref.name == "main" and not has_main:
+                has_main = True
+        except (ReferenceError, AttributeError):
+            pass
+
+        # Capture current HEAD SHA (used for branch recreation)
+        try:
+            sha = repo.head.commit.hexsha
+        except (ValueError, git.InvalidGitRepositoryError):
+            sha = None
+
         if has_main and has_template:
             if not self.force:
                 log.info("Template branches (main, TEMPLATE) already exist. Use --force to recreate.")
                 return 0
-            for branch_name in ["main", "TEMPLATE"]:
-                try:
-                    branch = repo.branches[branch_name]
-                    branch.delete(force=True)
-                except KeyError:
-                    pass
+            if not sha:
+                log.error("Cannot use --force on an empty repository with no commits.")
+                return 1
+            # Delete branches via git CLI (Branch.delete() doesn't support force=True)
+            _git("branch", "-D", "-f", "main")
+            _git("branch", "-D", "-f", "TEMPLATE")
+            has_main = False
+            has_template = False
 
-        current_head = repo.head.commit
+        if has_main and has_template:
+            log.info("Template branches already exist.")
+            return 0
 
+        # Recreate main branch from the captured SHA
         if not has_main:
-            repo.git.checkout(["-b", "main"])
-        elif has_main and has_template:
-            ref = repo.heads.main
-            ref.reset(current_head, hard=True)
+            if sha:
+                try:
+                    repo.git.checkout(["-b", "main"], sha)
+                except git.GitCommandError:
+                    pass
+            else:
+                # Empty repo: branches can't exist without commits
+                log.warning("Repository has no commits yet. Branch refs will be created on first commit.")
 
+        # Recreate TEMPLATE branch from the captured SHA
         if not has_template:
-            repo.git.checkout(["-b", "TEMPLATE"])
-        elif has_template:
-            repo.git.checkout("TEMPLATE")
-            ref = repo.heads.TEMPLATE
-            ref.reset(current_head, hard=True)
+            if sha:
+                try:
+                    repo.git.checkout(["-b", "TEMPLATE"], sha)
+                except git.GitCommandError:
+                    pass
+            else:
+                # Empty repo: branches can't exist without commits
+                log.warning("Repository has no commits yet. Branch refs will be created on first commit.")
 
-        try:
-            repo.git.checkout("main")
-        except git.InvalidGitRepositoryError:
-            repo.git.checkout(["-b", "main"])
+        # Switch back to main
+        if sha:
+            try:
+                repo.git.checkout("main")
+            except git.GitCommandError:
+                pass
 
         log.info("Template branches initialised.")
 
         # Gather person data
-        import os
-        import sys
-
         has_args = bool(self.person_name or self.person_handle or self.person_initials)
         is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
 

@@ -44,6 +44,42 @@ def _git_info() -> tuple[str, str]:
     return author, date
 
 
+def _get_file_history(repo_dir: Path, filepath: Path) -> tuple[str, str] | None:
+    """Return (author, date) from the last commit affecting this file, tracing renames.
+
+    Tries with the current path first, then without the repo_dir prefix.
+    Returns None if no git history exists for the file.
+    """
+    import subprocess
+
+    # Try relative path first, then bare filename
+    for rel_path in (str(filepath), filepath.name):
+        result = subprocess.run(
+            ["git", "-C", str(repo_dir), "log", "--follow", "--format=%an|||%ad", "--date=short", "-1", "--", rel_path],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split("|||", 1)
+            if len(parts) == 2:
+                return parts[0].strip(), parts[1].strip()
+    # Last resort: plain git log on the filename only
+    result = subprocess.run(
+        ["git", "-C", str(repo_dir), "log", "--format=%an|||%ad", "--date=short", "-50", "--", filepath.name],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        lines = [line for line in result.stdout.strip().split("\n") if line]
+        if lines:
+            parts = lines[0].split("|||", 1)
+            if len(parts) == 2:
+                return parts[0].strip(), parts[1].strip()
+    return None
+
+
 def _load_counter(repo_dir: Path) -> int:
     """Load next document ID counter."""
     counter_path = repo_dir / ".doc_id_counter.json"
@@ -461,6 +497,182 @@ class DocRetire:
 
         log.info("  status: retired")
         log.info(f"  reason: {self.reason or '(none provided)'}")
+        return 0
+
+    def _prompt(self, message: str, default: str = "") -> str:
+        if default:
+            prompt_str = f"{message} [{default}]: "
+        else:
+            prompt_str = f"{message}: "
+        value = input(prompt_str).strip()
+        return value or default
+
+
+def _validate_document_id(doc_id: str) -> None:
+    """Validate that a documentId is a 4-digit number."""
+    doc_id = str(doc_id)
+    if not doc_id.isdigit():
+        raise ValueError(f"DocumentId must be numeric: {doc_id}")
+    if len(doc_id) != 4:
+        raise ValueError(f"DocumentId must be 4 digits, got {len(doc_id)}: {doc_id}")
+
+
+class DocImport:
+    """Import an existing markdown file into the versioned-md structure."""
+
+    def __init__(
+        self,
+        source: str = "",
+        category: str = "",
+        document_id: str = "",
+        interactive: bool = False,
+        dry_run: bool = False,
+        force: bool = False,
+        skip_existing: bool = False,
+    ):
+        self.source = source
+        self.category = category
+        self.document_id = document_id
+        self.interactive = interactive
+        self.dry_run = dry_run
+        self.force = force
+        self.skip_existing = skip_existing
+
+    def run(self, repo_dir: Path) -> int:
+        source_path = Path(self.source)
+        if not source_path.is_absolute():
+            source_path = repo_dir / source_path
+
+        if not source_path.exists():
+            log.error(f"Source file not found: {source_path}")
+            return 1
+
+        if not self.source.endswith(".md"):
+            log.error(f"Source file must be a markdown file (.md): {source_path}")
+            return 1
+
+        try:
+            meta, body = _parse_frontmatter(source_path)
+        except ValueError as exc:
+            log.error(f"Cannot parse frontmatter from {source_path}: {exc}")
+            return 1
+        except Exception as exc:
+            log.error(
+                f"Frontmatter parsing error in {source_path}: {exc}\n"
+                "Hint: ensure frontmatter values with colons are quoted, "
+                "e.g. 'title: \"WIP: Feature Guide\"'"
+            )
+            return 1
+
+        if not body.strip():
+            log.error(f"Source file has no body content: {source_path}")
+            return 1
+
+        # Determine category
+        if not self.category:
+            frontmatter_cat = meta.get("category", "")
+            if frontmatter_cat in VALID_CATEGORIES:
+                self.category = frontmatter_cat
+            elif self.interactive:
+                self.category = self._prompt("Category (strict or draft)", default="draft")
+            else:
+                log.error("No category and none in frontmatter. Use --category or add 'category:' to frontmatter.")
+                return 1
+
+        if self.category not in VALID_CATEGORIES:
+            log.error(f"Invalid category '{self.category}'. Must be 'strict' or 'draft'.")
+            return 1
+
+        # Handle documentId
+        document_id = meta.get("documentId", "")
+
+        if self.category == "strict":
+            # Strict documents require a 4-digit documentId
+            if self.document_id:
+                document_id = self.document_id
+            elif not document_id and self.interactive:
+                document_id = self._prompt("Document number (e.g. 1001)")
+            elif not document_id:
+                log.error(
+                    "Strict documents require a documentId. Provide --document-id, or set documentId in frontmatter."
+                )
+                return 1
+            _validate_document_id(document_id)
+            document_id = str(document_id)
+            meta["documentId"] = document_id
+        else:
+            # Draft: auto-assign if missing
+            if not document_id:
+                skip_ids = set()
+                for cat in VALID_CATEGORIES:
+                    skip_ids.update(_collect_existing_ids(repo_dir, cat))
+                meta["documentId"] = _next_id(repo_dir, skip_ids)
+                document_id = meta["documentId"]
+                log.info(f"Auto-assigned documentId: {document_id}")
+            else:
+                meta["documentId"] = document_id
+
+        # Enrich with git history for source file
+        git_history = _get_file_history(repo_dir, source_path)
+        if git_history:
+            meta["updatedBy"] = git_history[0]
+            meta["lastUpdated"] = git_history[1]
+        else:
+            if not meta.get("updatedBy"):
+                meta["updatedBy"], _ = _git_info()
+            if not meta.get("lastUpdated"):
+                meta["lastUpdated"] = datetime.now(UTC).strftime("%Y-%m-%d")
+
+        # Populate remaining fields
+        if not meta.get("version"):
+            meta["version"] = "0"
+        if not meta.get("title"):
+            meta["title"] = source_path.stem.replace("-", " ").title()
+        if not meta.get("category"):
+            meta["category"] = self.category
+
+        # Determine target path
+        target_dir = repo_dir / CAT_DIR_MAP.get(self.category, f"docs/{self.category}")
+        if self.category == "draft":
+            title = meta.get("title", source_path.stem)
+            slug = _slugify(title)
+            filename = slug + ".md"
+        else:
+            filename = f"{document_id}.md"
+
+        target_path = target_dir / filename
+
+        if target_path.exists():
+            if self.skip_existing:
+                log.info(f"Skipping existing document: {target_path}")
+                return 0
+            if not self.force:
+                log.error(f"Target already exists: {target_path}. Use --force to overwrite or --dry-run to preview.")
+                return 1
+            log.warning(f"Overwriting existing target: {target_path}")
+
+        # Dry-run: just report
+        if self.dry_run:
+            log.info(f"[DRY RUN] Would create: {target_path}")
+            log.info(f"  title: {meta.get('title')}")
+            log.info(f"  category: {self.category}")
+            log.info(f"  documentId: {document_id}")
+            if source_path.exists():
+                log.info(f"  source: {source_path}")
+            return 0
+
+        # Create target directory and write
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_frontmatter(target_path, meta, body)
+
+        # Create companion .meta.json
+        _save_meta(target_path, {"version_history": []})
+
+        log.info(f"Imported: {source_path} -> {target_path}")
+        log.info(f"  title: {meta.get('title')}")
+        log.info(f"  category: {self.category}")
+        log.info(f"  documentId: {document_id}")
+
         return 0
 
     def _prompt(self, message: str, default: str = "") -> str:
