@@ -10,16 +10,10 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-VALID_CATEGORIES = ("strict", "draft", "reference")
+VALID_CATEGORIES = ("strict", "draft")
 CAT_DIR_MAP = {
     "strict": "docs/strict",
     "draft": "docs/drafts",
-    "reference": "docs/reference",
-}
-CAT_PROMPTS = {
-    "strict": "Category 'strict' (docs/strict/) — full governance, unique ID required",
-    "draft": "Category 'draft' (docs/drafts/) — in-progress work",
-    "reference": "Category 'reference' (docs/reference/) — independent reference docs",
 }
 DOC_BODY_TEMPLATE = """# {title}
 
@@ -69,11 +63,16 @@ def _save_counter(repo_dir: Path, n: int) -> None:
     counter_path.write_text(yaml.dump({"next_id": n}, default_flow_style=False) + "\n", encoding="utf-8")
 
 
-def _next_id(repo_dir: Path) -> str:
-    """Get and increment the next document ID."""
-    counter = _load_counter(repo_dir)
-    _save_counter(repo_dir, counter + 1)
-    return f"{counter:04d}"
+def _next_id(repo_dir: Path, skip_ids: set[str] | None = None) -> str:
+    """Get and increment the next document ID, avoiding collisions."""
+    skip_ids = skip_ids or set()
+    candidate = _load_counter(repo_dir)
+    while f"{candidate:04d}" in skip_ids:
+        candidate += 1
+    _save_counter(repo_dir, candidate + 1)
+    while f"{candidate:04d}" in skip_ids:
+        candidate += 1
+    return f"{candidate:04d}"
 
 
 def _load_meta(path: Path) -> dict:
@@ -91,6 +90,16 @@ def _save_meta(path: Path, data: dict) -> None:
     """Save companion .meta.json for a document."""
     meta_path = path.with_suffix(".meta.json")
     meta_path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True) + "\n", encoding="utf-8")
+
+
+def _slugify(text: str) -> str:
+    """Convert a string to a URL-safe slug."""
+    import re
+
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    return text
 
 
 def _parse_frontmatter(path: Path) -> tuple[dict, str]:
@@ -153,48 +162,57 @@ class DocCreate:
 
     def __init__(
         self,
-        path: str | Path = "",
         title: str = "",
         category: str = "",
         description: str = "",
         interactive: bool = False,
     ):
-        self.path = str(path)
         self.title = title
         self.category = category
         self.description = description
         self.interactive = interactive
 
     def run(self, repo_dir: Path) -> int:
-        if not self.path:
-            self.path = self._prompt("Document path (e.g. docs/drafts/my-doc.md)")
-
         if not self.title:
             self.title = self._prompt("Document title")
 
         if not self.category:
-            print("\nSelect category:")
-            for cat in VALID_CATEGORIES:
-                print(f"  {cat} — {CAT_PROMPTS[cat]}")
+            print("\nWhat kind of document is this?")
+            print("  1) draft — work in progress, no governance")
+            print("  2) strict — published documentation, requires documentId")
             while not self.category:
-                self.category = input("> ").strip().lower()
+                choice = input("> ").strip()
+                if choice == "1":
+                    self.category = "draft"
+                elif choice == "2":
+                    self.category = "strict"
+                else:
+                    print("Please enter 1 or 2")
 
-        if self.category not in VALID_CATEGORIES:
-            log.error(f"Invalid category '{self.category}'. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        if self.category not in ("strict", "draft"):
+            log.error(f"Invalid category '{self.category}'. Must be 'draft' or 'strict'.")
             return 1
 
         if not self.description:
             self.description = self._prompt("Description", default="A new documentation document")
 
-        if not self.interactive:
-            if not self.title or not self.path or not self.category:
-                log.error("Not running interactively. Provide --title, --path, and --category.")
+        # Build filename based on category
+        doc_dir = Path(CAT_DIR_MAP.get(self.category, f"docs/{self.category}"))
+        if self.category == "draft":
+            # Drafts: use a slugified version of the title
+            filename = self._make_slug(self.title) + ".md"
+        else:
+            # Strict: ask for the document number
+            doc_number = self._prompt("Document number (e.g. 1001)")
+            if not doc_number.isdigit():
+                log.error("Document number must be numeric.")
                 return 1
+            if len(doc_number) != 4:
+                log.error("Document number must be 4 digits.")
+                return 1
+            filename = doc_number + ".md"
 
-        # Determine target path
-        target_path = Path(self.path)
-        if not target_path.is_absolute():
-            target_path = repo_dir / target_path
+        target_path = doc_dir / filename
 
         # Ensure parent directory exists
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,26 +227,17 @@ class DocCreate:
         if not meta.get("category"):
             meta["category"] = self.category
 
-        # Auto-assign documentId for strict and draft
-        if self.category in ("strict", "draft") and not meta.get("documentId"):
-            meta["documentId"] = _next_id(repo_dir)
-            print(f"  Auto-assigned documentId: {meta['documentId']}")
-
-        # Ensure strict filename matches documentId
-        if self.category == "strict" and meta.get("documentId"):
-            expected_name = meta["documentId"]
-            if target_path.stem != expected_name:
-                new_path = target_path.with_name(f"{expected_name}.md")
-                if not new_path.exists():
-                    log.info(f"Renaming to match documentId: {target_path.name} -> {expected_name}.md")
-                    target_path = new_path
-                elif target_path.stem != expected_name:
-                    log.error(
-                        f"Strict filename must match documentId exactly. "
-                        f"'{target_path.name}' doesn't match documentId '{meta['documentId']}'. "
-                        f"Rename '{target_path.name}' to '{expected_name}.md'."
-                    )
-                    return 1
+        # Set documentId: use user-entered number for strict, auto-assign for draft
+        if self.category == "strict":
+            meta["documentId"] = doc_number
+        else:
+            if not meta.get("documentId"):
+                # Collect IDs from all categories to avoid collisions
+                skip_ids = set()
+                for cat in CAT_DIR_MAP:
+                    skip_ids.update(_collect_existing_ids(repo_dir, cat))
+                meta["documentId"] = _next_id(repo_dir, skip_ids)
+                print(f"  Auto-assigned documentId: {meta['documentId']}")
 
         # Populate remaining metadata
         if not meta.get("lastUpdated"):
@@ -275,6 +284,10 @@ class DocCreate:
             prompt_str = f"{message}: "
         value = input(prompt_str).strip()
         return value or default
+
+    def _make_slug(self, text: str) -> str:
+        """Convert a title to a slug for use in filenames."""
+        return _slugify(text)
 
 
 class DocPromote:
@@ -324,8 +337,13 @@ class DocPromote:
         document_id = meta.get("documentId", "")
         if self.category == "strict":
             if not document_id:
-                # Auto-assign a documentId
-                document_id = _next_id(repo_dir)
+                # Auto-assign a documentId, skipping IDs used in other categories
+                skip_ids = set()
+                for cat in CAT_DIR_MAP:
+                    skip_ids.update(_collect_existing_ids(repo_dir, cat))
+                if src_path.name.replace(".md", "") in skip_ids:
+                    skip_ids.discard(src_path.name.replace(".md", ""))
+                document_id = _next_id(repo_dir, skip_ids)
                 log.info(f"Auto-assigned documentId for promotion: {document_id}")
                 meta["documentId"] = document_id
             target_path = target_dir / f"{document_id}.md"

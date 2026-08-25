@@ -66,7 +66,7 @@ This bootstraps a new repo with:
 
 ```bash
 # Create your first document as a draft
-uv run versioned-md doc create docs/drafts/hello-world.md \
+uv run versioned-md doc create \
   --title "Hello World" \
   --category draft \
   --description "The first document"
@@ -107,21 +107,21 @@ versioned-md sync
 The typical workflow for managing documents:
 
 ```bash
-# 1. Create a draft document (CI auto-assigns a documentId)
-versioned-md doc create docs/drafts/my-feature.md --title "My Feature" --category draft
+# 1. Create a draft document (auto-assigns documentId)
+versioned-md doc create --title "My Feature" --category draft
 
-# 2. Promote to strict (CI auto-renames to documentId.md)
-versioned-md doc promote docs/drafts/1001-my-feature.md --category strict
+# 2. Promote to strict
+versioned-md doc promote docs/drafts/abc-my-feature.md --category strict
 
-# 3. Deactivate a document (moves to docs/deactivated/)
-versioned-md doc deactivate docs/strict/1001-old-doc.md --reason "Replaced by 1020"
+# 3. Retire a document (moves to docs/retired/)
+versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 ```
 
 ### Document Lifecycle
 
 | Command | Purpose | Details |
 |---|---|---|
-| `doc create` | Create a new document | Writes frontmatter with title, category, auto-assigned documentId |
+| `doc create` | Create a new document | Prompts for category; drafts get auto-assigned docId, strict asks for a number |
 | `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
 | `doc deactivate` | Archive a document | Moves to `docs/deactivated/`, adds `status: deactivated` to frontmatter |
 

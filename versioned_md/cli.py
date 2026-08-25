@@ -27,21 +27,23 @@ app.add_typer(people_app, name="people", help="Manage team members in people.jso
 
 @doc_app.command("create")
 def doc_create(
-    path: str = typer.Option("", "--path", "-p", help="Document path (e.g. docs/drafts/my-doc.md)."),
     title: str = typer.Option("", "--title", "-t", help="Document title."),
     description: str = typer.Option("", "--description", "-d", help="Document description."),
-    category: str = typer.Option("", "--category", "-c", help="Document category (strict, draft, reference)."),
+    category: str = typer.Option("", "--category", "-c", help="Document category (draft or strict)."),
     directory: str = typer.Option(".", "--dir", help="Repository directory (default: current)."),
 ):
-    """Create a new document with frontmatter."""
+    """Create a new document with frontmatter.
+
+    You'll be prompted for the missing information.
+    """
     repo_dir = Path(directory)
     if not repo_dir.exists():
         typer.echo(f"Error: Directory '{directory}' not found.", err=True)
         sys.exit(1)
-    has_args = bool(path or title or category)
+    has_args = bool(title or category)
     is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
     interactive = not has_args and is_tty
-    doc_create = DocCreate(path=path, title=title, category=category, description=description, interactive=interactive)
+    doc_create = DocCreate(title=title, category=category, description=description, interactive=interactive)
     result = doc_create.run(repo_dir)
     sys.exit(result or 0)
 
