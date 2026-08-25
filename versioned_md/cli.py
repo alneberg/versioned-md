@@ -182,7 +182,7 @@ def create(
     name: str = typer.Option(None, "--name", "-n", help="Repository name (e.g. my-docs)."),
     description: str = typer.Option(None, "--description", "-d", help="Short description of the documentation repo."),
     author: str = typer.Option(None, "--author", "-a", help="Organisation or person name."),
-    org: str = typer.Option(None, "--org", "-o", help="Organisation / GitHub username."),
+    org: str = typer.Option(None, "--org", "-o", help="Organisation override (defaults to --author value)."),
     outdir: str = typer.Option(
         None, "--outdir", "-O", help="Directory to create the repo in. Defaults to current dir."
     ),

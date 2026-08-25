@@ -177,8 +177,8 @@ class CreateApplication:
         if is_interactive:
             ctx["name"] = self.name or self._prompt("Repository name")
             ctx["description"] = self.description or self._prompt("Description", "Documentation repository")
-            ctx["author"] = self.author or self._prompt("Author / Organisation")
-            ctx["org"] = self.org or self._prompt("Organisation / GitHub username")
+            ctx["author"] = self.author or self._prompt("Author or organisation name")
+            ctx["org"] = self.org or ctx["author"]
 
         context = self._load_config(ctx)
 
@@ -228,10 +228,6 @@ class CreateApplication:
             ctx["is_nfcore"] = ctx["org"] == "nf-core"
             if not ctx["description"]:
                 ctx["description"] = f"Documentation for {name}"
-            if not ctx["org"]:
-                ctx["org"] = ctx["author"] or "unknown"
-            if not ctx["author"]:
-                ctx["author"] = ctx["org"]
             return ctx
 
         config_path = Path(self.config_file)
@@ -254,10 +250,6 @@ class CreateApplication:
             sys.exit(1)
         if not result["description"]:
             result["description"] = f"Documentation for {result['name']}"
-        if not result["org"]:
-            result["org"] = ctx["author"] or "unknown"
-        if not result["author"]:
-            result["author"] = result["org"]
 
         result["repo_name"] = _normalize_name(result["name"])
         result["short_name"] = _normalize_name(result["name"])
