@@ -23,10 +23,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install pyyaml
+        run: pip install pyyaml requests
 
       - name: Run check-header
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/scripts/check-header.py \
             --base-ref "${{ github.event.pull_request.base.sha }}" \
-            --pr-ref "${{ github.event.pull_request.head.sha }}"
+            --pr-ref "${{ github.event.pull_request.head.sha }}" \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --pr-author "${{ github.event.pull_request.user.login }}" \
+            --repo "${{ github.repository }}"

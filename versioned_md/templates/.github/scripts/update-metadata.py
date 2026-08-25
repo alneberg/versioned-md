@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from lib.metadata import (
     bump_version,
     generate_document_id,
-    get_commit_author,
+    read_commit_author,
     get_commit_date,
     get_latest_commit_message,
     get_latest_commit_sha,
@@ -149,7 +149,7 @@ def update_single_file(md_path: str, repo: str, pr_number: int | None, reviewers
     # Derive fields
     commit_sha = get_latest_commit_sha()
     commit_date = get_commit_date()
-    author = get_commit_author()
+    author = read_commit_author()
 
     # Use reviewer list from PR if available; fall back to what's already set
     reviewer_list = meta.get("reviewer")
@@ -224,11 +224,14 @@ def validate_all_document_ids(all_md_files: list[str]) -> bool:
 
 
 def main() -> int:
+    import os
+
     parser = argparse.ArgumentParser(description="Update document metadata after merge")
     parser.add_argument("--repo", required=True, help="Repository in owner/name format")
     args = parser.parse_args()
 
     repo = args.repo
+    token = os.environ.get("GITHUB_TOKEN", "")
     pr_number = None
 
     # Step 1: Extract PR number from merge commit message
@@ -238,8 +241,35 @@ def main() -> int:
     pr_number = epn(commit_msg)
 
     if pr_number is not None:
-        reviewers = fetch_reviewers(pr_number, repo, "")
+        reviewers = fetch_reviewers(pr_number, repo, token)
         print(f"Fetched {len(reviewers)} reviewers for PR #{pr_number}: {reviewers}")
+
+        # Validate that all approved reviewers exist in people.json
+        # Load people.json from current HEAD
+        import subprocess
+
+        people_result = subprocess.run(
+            ["git", "show", "HEAD:people.json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if people_result.returncode == 0:
+            import json
+
+            people_data = json.loads(people_result.stdout)
+            people_handles = {p.get("handle", "") for p in people_data.get("people", [])}
+
+            for reviewer in reviewers:
+                if reviewer not in people_handles:
+                    print(
+                        f"ERROR: Approved reviewer '{reviewer}' is not listed in people.json. "
+                        f"Run 'versioned-md people import' to add them.",
+                        file=sys.stderr,
+                    )
+                    return 1
+        else:
+            print("WARNING: people.json not found. Skipping reviewer validation.", file=sys.stderr)
     else:
         reviewers = []
         print(f"No PR number found in commit message: '{commit_msg}'")

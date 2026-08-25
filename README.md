@@ -87,6 +87,9 @@ The `TEMPLATE` branch is synced automatically with `versioned-md sync` when CI w
 # Add a person to your repo
 versioned-md people add --name "Name" --handle "handle" --initials "XX"
 
+# Import people from GitHub + git log
+versioned-md people import [--dry-run] [--token TOKEN]
+
 # Manage documents
 versioned-md doc create [options]     # Create a new document
 versioned-md doc promote [options]    # Promote draft → strict
@@ -134,9 +137,17 @@ versioned-md people add
 
 # Deactivate a team member
 versioned-md people deactivate --handle "jane"
+
+# Import people from GitHub API + git log
+versioned-md people import         # auto-discovers from contributors & git log
+versioned-md people import --dry-run   # preview without writing
 ```
 
-You'll need at least one person in `people.json` to create documents. Add one with `versioned-md people add` after setting up your repo.
+`people import` scans the local git log and (on GitHub repos) the contributors API and PR reviews.
+You'll need a `GITHUB_TOKEN` or `--token` to access the GitHub API for full discovery.
+Not a GitHub repo — the command falls back to git log only.
+
+You'll need at least one person in `people.json` to create documents. Use `versioned-md people add` or `versioned-md people import` to populate it.
 
 ## Example Frontmatter
 

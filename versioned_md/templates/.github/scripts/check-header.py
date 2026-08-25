@@ -11,6 +11,7 @@ Exit code 0 = pass, 1 = fail (print reasons).
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from lib.metadata import (
     get_protected_keys,
     validate_document_id_format,
 )
+from lib.reviewers import fetch_reviewers
 
 
 def files_in_ref(ref: str, pattern: str = "*.md") -> list[str]:
@@ -205,13 +207,77 @@ def _load_meta_from_text(text: str) -> dict:
     return data
 
 
+def _validate_people_in_people_json(
+    pr_author: str,
+    pr_number: int,
+    repo: str,
+    base_ref: str,
+    token: str,
+) -> list[str]:
+    """Check that PR author and approved reviewers exist in people.json.
+
+    Returns a list of error messages (empty = OK).
+    """
+    errors: list[str] = []
+
+    # Load people.json from the base ref
+    people_text = _git_show(base_ref, "people.json")
+    if not people_text:
+        errors.append("people.json not found in the base branch. Cannot validate people.")
+        return errors
+
+    try:
+        import json
+
+        people_data = json.loads(people_text)
+        # people.json format: { "people": [{ "handle": "...", ... }, ...] }
+        people_handles = {p.get("handle", "") for p in people_data.get("people", [])}
+    except (json.JSONDecodeError, KeyError):
+        errors.append("people.json has invalid structure. Expected { \"people\": [...] }")
+        return errors
+
+    # Check PR author
+    if pr_author:
+        if pr_author not in people_handles:
+            errors.append(
+                f"PR author '{pr_author}' is not listed in people.json. "
+                f"Run 'versioned-md people import' to add them."
+            )
+
+    # Fetch approved reviewers and validate each
+    if repo and token:
+        try:
+            approved_reviewers = fetch_reviewers(pr_number, repo, token)
+            for reviewer in approved_reviewers:
+                if reviewer not in people_handles:
+                    errors.append(
+                        f"Approved reviewer '{reviewer}' is not listed in people.json. "
+                        f"Run 'versioned-md people import' to add them."
+                    )
+        except Exception as e:
+            # Reviewer validation failure is a warning, not a hard error
+            print(f"WARNING: could not fetch reviewers for PR #{pr_number}: {e}")
+
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check document metadata in a PR")
     parser.add_argument("--base-ref", required=True, help="Base branch commit SHA")
     parser.add_argument("--pr-ref", required=True, help="PR head commit SHA")
+    parser.add_argument("--pr-number", type=int, default=0, help="PR number (for people validation)")
+    parser.add_argument("--pr-author", default="", help="PR author login (for people validation)")
+    parser.add_argument("--repo", default="", help="Repository in owner/name format")
     args = parser.parse_args()
 
+    token = os.environ.get("GITHUB_TOKEN", "")
     errors: list[str] = []
+
+    # Validate PR author and reviewers are in people.json (if PR number provided + token available)
+    if args.pr_number and token:
+        errors.extend(
+            _validate_people_in_people_json(args.pr_author, args.pr_number, args.repo, args.base_ref, token)
+        )
 
     # Check changed .md files
     md_files = find_changed_md_refs(args.base_ref, args.pr_ref)

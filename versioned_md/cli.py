@@ -11,7 +11,7 @@ import typer
 from versioned_md.create import CreateApplication
 from versioned_md.doc import DocCreate, DocImport, DocPromote, DocRetire
 from versioned_md.doc import log as doc_log
-from versioned_md.people import add_person, deactivate_person, validate_people_path
+from versioned_md.people import add_person, deactivate_person, import_people, validate_people_path
 from versioned_md.sync import SyncApplication
 
 app = typer.Typer(
@@ -174,7 +174,7 @@ def doc(
 
         return
 
-    typer.echo("Use 'versioned-md doc <subcommand>' instead. Subcommands: create, promote, retire.")
+    typer.echo("Use 'versioned-md doc <subcommand>' instead. Subcommands: create, promote, retire, import.")
 
 
 @app.command("create")
@@ -277,6 +277,43 @@ def people_deactivate(
     if not handle:
         handle = typer.prompt("Person handle")
     result = deactivate_person(people_path, handle)
+    sys.exit(result or 0)
+
+
+@people_app.command("import")
+def people_import(
+    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    token: str = typer.Option("", "--token", help="GitHub personal-access token (or set GITHUB_TOKEN)."),
+    from_git: bool = typer.Option(True, "--from-git/--no-git", help="Include authors from git log."),
+    pr_limit: int = typer.Option(50, "--pr-limit", "-l", help="Max number of PRs to scan for reviewers."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the import without writing files."),
+    skip_existing: bool = typer.Option(False, "--skip-existing", "-k", help="Skip people already in people.json."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
+):
+    """Import people from GitHub API and/or local git log.
+
+    Scans git log authors and GitHub contributors/reviewers.
+    Detects the owner/repo from the remote URL automatically.
+    Not a GitHub repo — falls back to git log only.
+    """
+    logging.basicConfig(level="DEBUG" if verbose else "INFO", format="%(levelname)s: %(message)s")
+    repo_dir = Path(directory)
+    if not repo_dir.exists():
+        typer.echo(f"Error: Directory '{directory}' not found.", err=True)
+        sys.exit(1)
+    try:
+        result = import_people(
+            repo_dir=repo_dir,
+            token=token or "",
+            dry_run=dry_run,
+            skip_existing=skip_existing,
+            pr_limit=pr_limit,
+            from_git=from_git,
+            verbose=verbose,
+        )
+    except ValueError as exc:
+        doc_log.error(f"Validation error: {exc}")
+        sys.exit(1)
     sys.exit(result or 0)
 
 
