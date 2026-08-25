@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from versioned_md.create import CreateApplication, InitApplication
+from versioned_md.create import CreateApplication
 from versioned_md.doc import DocCreate, DocImport, DocPromote, DocRetire
 from versioned_md.doc import log as doc_log
 from versioned_md.people import add_person, deactivate_person, validate_people_path
@@ -220,40 +220,6 @@ def create(
     # Pass is_interactive based on whether any args were given
     has_args = any([name, description, author, org, config])
     result = create_app.run(is_interactive=not has_args)
-    sys.exit(result or 0)
-
-
-@app.command("init")
-def init_repo(
-    directory: str = typer.Option(".", "--dir", "-d", help="Directory to initialise (default: current)."),
-    person_name: str = typer.Option(None, "--person-name", "-n", help="Initial person name."),
-    person_handle: str = typer.Option(
-        None, "--person-handle", "-h", help="Initial person handle (e.g. github username)."
-    ),
-    person_initials: str = typer.Option(None, "--person-initials", "-i", help="Initial person initials (e.g. JD)."),
-    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing template branches."),
-):
-    """Initialise template branches (main, TEMPLATE) and create people.json.
-
-    Provide --person-name, --person-handle, --person-initials for non-interactive use,
-    or run interactively in a terminal.
-    """
-    has_args = bool(person_name or person_handle or person_initials)
-    import os
-    import sys
-
-    is_tty = os.isatty(sys.stdin.fileno()) and os.isatty(sys.stdout.fileno())
-    run_interactive = not has_args and is_tty
-
-    init_app = InitApplication(
-        Path(directory),
-        person_name=person_name or "",
-        person_handle=person_handle or "",
-        person_initials=person_initials or "",
-        force=force,
-        run_interactive=run_interactive,
-    )
-    result = init_app.run()
     sys.exit(result or 0)
 
 
