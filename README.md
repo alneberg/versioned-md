@@ -50,18 +50,15 @@ uv sync
 
 # Create a new documentation repository
 mkdir my-docs && cd my-docs
+uv run versioned-md create
 
-# Initialise with an initial person (required for people.json)
-uv run versioned-md init . \
-  --person-name "Jane Doe" \
-  --person-handle "jane" \
-  --person-initials "JD"
+# Add an initial person (required for people.json)
+uv run versioned-md people add --name "Jane Doe" --handle "jane" --initials "JD"
 ```
 
 This bootstraps a new repo with:
 - `docs/strict/`, `docs/drafts/`, `docs/reference/` directories
 - A `TEMPLATE` branch containing CI workflows, scripts, and Python utilities
-- `people.json` with your initial person
 - A `main` branch ready for documentation
 
 ```bash
@@ -87,16 +84,14 @@ The `TEMPLATE` branch is synced automatically with `versioned-md sync` when CI w
 ## CLI Reference
 
 ```bash
-# Initialise template branches and create people.json
-versioned-md init --person-name "Name" --person-handle "handle" --person-initials "XX"
-
-# Add a person to an existing repo
+# Add a person to your repo
 versioned-md people add --name "Name" --handle "handle" --initials "XX"
 
-# Create, promote, or deactivate documents
-versioned-md doc create [options]    # Create a new document
-versioned-md doc promote [options]   # Promote draft → strict
-versioned-md doc deactivate [options]    # Deactivate a document
+# Manage documents
+versioned-md doc create [options]     # Create a new document
+versioned-md doc promote [options]    # Promote draft → strict
+versioned-md doc retire [options]     # Retire a document
+versioned-md doc import [options]     # Import an existing markdown file
 
 # Synchronize the TEMPLATE branch with the latest CI workflows
 versioned-md sync
@@ -123,7 +118,8 @@ versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 |---|---|---|
 | `doc create` | Create a new document | Prompts for category; drafts get auto-assigned docId, strict asks for a number |
 | `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
-| `doc deactivate` | Archive a document | Moves to `docs/deactivated/`, adds `status: deactivated` to frontmatter |
+| `doc retire` | Retire a document | Moves to `docs/retired/`, adds `status: retired` to frontmatter |
+| `doc import` | Import existing Markdown file | Extracts frontmatter, enriches with git history, supports `--dry-run` |
 
 ### People Management
 
@@ -140,15 +136,7 @@ versioned-md people add
 versioned-md people deactivate --handle "jane"
 ```
 
-When initialising a new repo, the same fields are collected:
-
-```bash
-# Non-interactive
-versioned-md init --person-name "Jane Doe" --person-handle "jane" --person-initials "JD"
-
-# Interactive (TTY)
-versioned-md init
-```
+You'll need at least one person in `people.json` to create documents. Add one with `versioned-md people add` after setting up your repo.
 
 ## Example Frontmatter
 
@@ -174,11 +162,10 @@ commitHash: "a1b2c3d"
 ## Development
 
 ```bash
-uv sync                           # install runtime deps + package
-uv pip install -e ".[dev]"        # add ruff
-uv run ruff check .               # lint
-uv run ruff format .              # format
-uv run versioned-md init .        # use the CLI
+uv sync               # install runtime deps + package
+uv pip install -e ".[dev]"  # add dev deps
+uv run ruff check .   # lint
+uv run ruff format .  # format
 ```
 
 ## License
