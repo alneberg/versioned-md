@@ -99,13 +99,14 @@ def _save_counter(repo_dir: Path, n: int) -> None:
     counter_path.write_text(yaml.dump({"next_id": n}, default_flow_style=False) + "\n", encoding="utf-8")
 
 
-def _next_id(repo_dir: Path, skip_ids: set[str] | None = None) -> str:
+def _next_id(repo_dir: Path, skip_ids: set[str] | None = None, *, save: bool = True) -> str:
     """Get and increment the next document ID, avoiding collisions."""
     skip_ids = skip_ids or set()
     candidate = _load_counter(repo_dir)
     while f"{candidate:04d}" in skip_ids:
         candidate += 1
-    _save_counter(repo_dir, candidate + 1)
+    if save:
+        _save_counter(repo_dir, candidate + 1)
     while f"{candidate:04d}" in skip_ids:
         candidate += 1
     return f"{candidate:04d}"
@@ -553,16 +554,10 @@ class DocImport:
 
         try:
             meta, body = _parse_frontmatter(source_path)
-        except ValueError as exc:
-            log.error(f"Cannot parse frontmatter from {source_path}: {exc}")
-            return 1
-        except Exception as exc:
-            log.error(
-                f"Frontmatter parsing error in {source_path}: {exc}\n"
-                "Hint: ensure frontmatter values with colons are quoted, "
-                "e.g. 'title: \"WIP: Feature Guide\"'"
-            )
-            return 1
+        except ValueError:
+            text = source_path.read_text(encoding="utf-8")
+            meta = {}
+            body = text
 
         if not body.strip():
             log.error(f"Source file has no body content: {source_path}")
@@ -606,7 +601,7 @@ class DocImport:
                 skip_ids = set()
                 for cat in VALID_CATEGORIES:
                     skip_ids.update(_collect_existing_ids(repo_dir, cat))
-                meta["documentId"] = _next_id(repo_dir, skip_ids)
+                meta["documentId"] = _next_id(repo_dir, skip_ids, save=not self.dry_run)
                 document_id = meta["documentId"]
                 log.info(f"Auto-assigned documentId: {document_id}")
             else:

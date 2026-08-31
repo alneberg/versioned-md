@@ -250,7 +250,10 @@ def people_add(
     directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
     name: str = typer.Option(None, "--name", "-n", help="Person name."),
     handle: str = typer.Option(None, "--handle", "-h", help="Person handle (e.g. github username)."),
-    initials: str = typer.Option(None, "--initials", "-i", help="Person initials (e.g. JD)."),
+    initials: str = typer.Option(None, "--initials", "-i", help="Person initials (e.g. JD)"),
+    aliases: list[str] = typer.Option(  # noqa: C901
+        None, "--alias", "-a", help="Extra aliases. Repeatable or comma-separated.",
+    ),
 ):
     """Add a person to the repository's people.json."""
     repo_dir = Path(directory)
@@ -262,7 +265,11 @@ def people_add(
         name = typer.prompt("Name")
         handle = typer.prompt("Handle (e.g. github username)")
         initials = typer.prompt("Initials (e.g. JD)")
-    result = add_person(people_path, name or "", handle or "", initials or "")
+    alias_list: list[str] = []
+    if aliases:
+        for a in aliases:
+            alias_list.extend(part.strip() for part in a.split(",") if part.strip())
+    result = add_person(people_path, name or "", handle or "", initials or "", alias_list if alias_list else None)
     sys.exit(result or 0)
 
 
@@ -282,7 +289,8 @@ def people_deactivate(
 
 @people_app.command("import")
 def people_import(
-    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory for scanning (default: current)."),
+    output_dir: str = typer.Option(".", "--output-dir", "-o", help="Output dir for people.json (default: cwd)."),
     token: str = typer.Option("", "--token", help="GitHub personal-access token (or set GITHUB_TOKEN)."),
     from_git: bool = typer.Option(True, "--from-git/--no-git", help="Include authors from git log."),
     pr_limit: int = typer.Option(50, "--pr-limit", "-l", help="Max number of PRs to scan for reviewers."),
@@ -301,6 +309,12 @@ def people_import(
     if not repo_dir.exists():
         typer.echo(f"Error: Directory '{directory}' not found.", err=True)
         sys.exit(1)
+    out_dir = Path(output_dir)
+    try:
+        out_dir.mkdir(exist_ok=True)
+    except OSError as exc:
+        typer.echo(f"Error: Cannot create output directory: {exc}", err=True)
+        sys.exit(1)
     try:
         result = import_people(
             repo_dir=repo_dir,
@@ -310,6 +324,7 @@ def people_import(
             pr_limit=pr_limit,
             from_git=from_git,
             verbose=verbose,
+            output_dir=out_dir,
         )
     except ValueError as exc:
         doc_log.error(f"Validation error: {exc}")

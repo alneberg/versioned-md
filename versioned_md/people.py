@@ -33,6 +33,13 @@ def _write_people(people_path: Path, data: dict) -> None:
     )
 
 
+def _gen_id(name: str) -> str:
+    """Generate a deterministic, stable ID from a person's name."""
+    slug = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return f"p-{slug}"
+
+
 def write_people_file(outdir: Path, name: str, handle: str, initials: str) -> int:
     """Write initial people.json with one person."""
     if not name:
@@ -48,9 +55,11 @@ def write_people_file(outdir: Path, name: str, handle: str, initials: str) -> in
     data = {
         "people": [
             {
+                "id": _gen_id(name),
                 "name": name,
                 "handle": handle,
                 "initials": initials,
+                "aliases": [],
                 "active": True,
             }
         ]
@@ -65,7 +74,92 @@ def write_people(people_path: Path, data: dict) -> None:
     _write_people(people_path, data)
 
 
-def add_person(people_path: Path, name: str, handle: str, initials: str) -> int:
+def _find_match(people: list[dict], name: str | None, handle: str | None, email: str | None) -> dict | None:
+    """Find an existing person matching any known identifier.
+
+    Matches against: handle, email, name, and aliases (all case-insensitive).
+    Returns the matching person dict, or None.
+    """
+    handle = (handle or "").lower()
+    email = (email or "").lower()
+    name = (name or "").lower()
+
+    for p in people:
+        existing = {
+            (p.get("handle") or "").lower(),
+            (p.get("email") or "").lower(),
+            (p.get("name") or "").lower(),
+            *(a.lower() for a in (p.get("aliases") or [])),
+        }
+        existing -= {""}
+        if not existing:
+            continue
+
+        new_idents = {handle, email, name}
+        new_idents -= {""}
+
+        if existing & new_idents:
+            return p
+
+    return None
+
+
+def _merge_to_existing(person: dict, name: str | None, handle: str | None, email: str | None) -> None:
+    """Fill in missing fields and add discovered identifiers to aliases."""
+    if name and not person.get("name"):
+        person["name"] = name
+    if handle and not person.get("handle"):
+        person["handle"] = handle
+    if email and not person.get("email"):
+        person["email"] = email
+
+    aliases = set(a.lower() for a in (person.get("aliases") or []))
+
+    # Existing primary identifiers (should not be duplicated in aliases)
+    primary = {
+        (person.get("handle") or "").lower(),
+        (person.get("email") or "").lower(),
+        (person.get("name") or "").lower(),
+    }
+    name_val = person.get("name") or ""
+    if name_val:
+        primary.add(re.sub(r"[^a-z0-9-]", "", name_val.lower().replace(" ", "-")))
+
+    # Add handle to aliases (the handle itself, and its normalized form)
+    if handle:
+        h_slug = re.sub(r"[^a-z0-9-]", "", handle.lower())
+        for candidate in [handle.lower(), h_slug]:
+            if candidate and candidate not in primary and candidate not in aliases:
+                aliases.add(candidate)
+
+    # Add email username part to aliases (e.g. "john" from "john@company.com")
+    if email:
+        user = email.lower().split("@")[0]
+        if user and user not in primary and user not in aliases:
+            aliases.add(user)
+
+    # Add name variations (if different from existing name)
+    if name:
+        n_slug = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))
+        for candidate in [name.lower(), n_slug]:
+            if (
+                candidate
+                and candidate != (person.get("name") or "").lower()
+                and candidate not in primary
+                and candidate not in aliases
+            ):
+                aliases.add(candidate)
+
+    person["aliases"] = sorted(a for a in aliases if a)
+
+
+def add_person(
+    people_path: Path,
+    name: str,
+    handle: str,
+    initials: str,
+    aliases: list[str] | None = None,
+) -> int:
     """Add a person to people.json."""
     if not name:
         name = _prompt("Name")
@@ -85,13 +179,30 @@ def add_person(people_path: Path, name: str, handle: str, initials: str) -> int:
             log.error(f"A person with handle '{handle}' already exists.")
             return 1
 
+    # Build aliases list from --alias flags, excluding handle
+    alias_set: set[str] = set(aliases or [])
+    for a in alias_set:
+        a_lower = a.lower()
+        a_slug = re.sub(r"[^a-z0-9-]", "", a_lower)
+
+        # Remove anything that duplicates the handle
+        if a_lower == handle.lower() or a_slug == handle.lower():
+            alias_set.discard(a_lower)
+            alias_set.discard(a_slug)
+
+        # Normalise: always store the slugified form
+        alias_set.discard(a_lower)
+        alias_set.add(a_slug)
+
     data["people"].append(
         {
+            "id": _gen_id(name),
             "name": name,
             "handle": handle,
             "initials": initials,
+            "aliases": sorted(a for a in alias_set if a),
             "active": True,
-        }
+        },
     )
 
     _write_people(people_path, data)
@@ -128,7 +239,13 @@ def list_people(people_path: Path) -> int:
 
     for person in people:
         status = "active" if person.get("active") else "inactive"
-        print(f"  {person['name']:<30} @{person['handle']:<15} {person.get('initials', ''):<5} [{status}]")
+        aliases_str = ""
+        p_aliases = person.get("aliases")
+        if p_aliases:
+            aliases_str = " [" + ", ".join(p_aliases) + "]"
+        print(
+            f"  {person['name']:<30} @{person['handle']:<15} {person.get('initials', ''):<5} [{status}]{aliases_str}",
+        )
 
     return 0
 
@@ -152,6 +269,7 @@ class DiscoveredPerson:
     email: str | None
     source: str  # "github-contributors" | "pr-reviews" | "git-log"
     source_detail: str = ""
+    aliases: list[str] | None = None
 
 
 def _parse_remote_url(remote_url: str) -> tuple[str, str] | None:
@@ -353,17 +471,29 @@ def import_people(
     pr_limit: int = 50,
     from_git: bool = True,
     verbose: bool = False,
+    output_dir: Path | None = None,
 ) -> int:
     """Import people from GitHub API and/or local git log.
 
-    Returns 0 on success, 1 on error.
+    Args:
+        repo_dir: Directory used for git operations (scanning authors, remote URL).
+        output_dir: Directory where people.json will be written. Defaults to repo_dir.
+        token: GitHub personal-access token.
+        dry_run: If True, don't write any files.
+        skip_existing: If True, skip people already in people.json (checks aliases).
+        pr_limit: Max number of PRs to scan for reviewers.
+        from_git: If True, include authors from git log.
+        verbose: If True, use DEBUG log level.
+
+    Returns:
+        0 on success, 1 on error.
     """
-    existing: dict[str, dict] = {}
-    people_path = repo_dir / PEOPLE_FILE
-    if people_path.exists():
-        data = _load_people(people_path)
-        for person in data.get("people", []):
-            existing[person.get("handle", "").lower()] = person
+    if output_dir is None:
+        output_dir = repo_dir
+
+    people_path = output_dir / PEOPLE_FILE
+    data = _load_people(people_path) if people_path.exists() else {"people": []}
+    existing_people = data.get("people", [])
 
     github_token = token or os.environ.get("GITHUB_TOKEN", "")
     discovered: dict[str, DiscoveredPerson] = {}  # keyed by handle (lower)
@@ -398,10 +528,8 @@ def import_people(
             for c in contributors:
                 login = c.get("login", "")
                 name = c.get("name") or c.get("login", "")
-                email = c.get("email") or ""
-                email = email.lower()
+                email = (c.get("email") or "").lower()
                 handle = login
-                # Check handle uniqueness
                 lower = handle.lower()
                 if lower in discovered:
                     continue
@@ -474,62 +602,90 @@ def import_people(
         log.info("No people discovered. Nothing to do.")
         return 0
 
-    # Build output
-    to_add = []
-    to_skip = 0
-    lines = []
+    # Process: match, merge, or add
+    new_people: list[dict] = []
+    skip_count = 0
+    merge_count = 0
+    lines: list[str] = []
 
-    for lower, person in sorted(discovered.items()):
-        if skip_existing and lower in existing:
-            to_skip += 1
-            lines.append(f"  ⏭ {person.name or person.handle} — already exists in people.json ({person.source})")
-            continue
-
-        final_name = person.name or person.handle or "Unknown"
-        initials = _derive_initials(final_name)
-        person.handle = person.handle or _slugify(final_name) or "unknown"
-
+    for lower, p in sorted(discovered.items()):
+        handle, name = _resolve_person(p.name, p.email, p.source)
+        p.handle = handle
+        email = p.email or ""
         source_label = {
             "github-contributors": "GitHub contributors",
             "pr-reviews": "PR reviews",
             "git-log": "git log",
-        }.get(person.source, person.source)
+        }.get(p.source, p.source)
 
-        if person.source == "github-contributors" and person.name:
-            detail = f", name: {person.name}"
-        elif person.source == "pr-reviews":
-            detail = ", handle: " + person.handle
+        match = _find_match(existing_people, name, handle, email)
+
+        if match:
+            if skip_existing:
+                skip_count += 1
+                display_name = name or handle
+                lines.append(f"  ⏭ {display_name} — already exists in people.json ({source_label})")
+                continue
+            _merge_to_existing(match, name, handle, email)
+            merge_count += 1
+            display_name = name or handle
+            lines.append(f"  ↻ {display_name} — merged into existing ({source_label})")
         else:
-            detail = ""
+            if skip_existing:
+                skip_count += 1
+                display_name = name or handle
+                lines.append(f"  ⏭ {display_name} — already exists in people.json ({source_label})")
+                continue
 
-        lines.append(f"  ✔ {final_name} — from {source_label}{detail}, initials: {initials}")
-        to_add.append({"name": final_name, "handle": person.handle, "initials": initials, "active": True})
+            final_name = name or handle or "Unknown"
+            initials = _derive_initials(final_name)
+            source_detail = ""
+            if p.source == "github-contributors" and p.name:
+                source_detail = f", name: {p.name}"
+            elif p.source == "pr-reviews":
+                source_detail = f", handle: {p.handle}"
+
+            lines.append(
+                f"  ✔ {final_name} — from {source_label}{source_detail}, initials: {initials}",
+            )
+            new_people.append(
+                {
+                    "id": _gen_id(final_name),
+                    "name": final_name,
+                    "handle": p.handle,
+                    "initials": initials,
+                    "aliases": [],
+                    "active": True,
+                },
+            )
 
     prefix_total = f"Discovered {len(discovered)} people from git log, GitHub contributors, and PRs"
     print(prefix_total)
     for line in lines:
         print(line)
 
-    if to_skip:
-        print(f"  skipped {to_skip} already existing")
-    print(f"  {len(to_add)} new person(s) to add")
+    if skip_count:
+        print(f"  skipped {skip_count} already in people.json")
+    if merge_count:
+        print(f"  {merge_count} merged into existing")
+    print(f"  {len(new_people)} new person(s) to add")
 
     if dry_run:
         print("Dry run — no changes written.")
         return 0
 
     # Write updated people.json
-    if to_add:
-        data = _load_people(people_path)
-        existing_handles = {p.get("handle", "").lower() for p in data.get("people", [])}
+    if new_people:
+        data["people"].extend(new_people)
 
-        for person in to_add:
-            if person["handle"].lower() not in existing_handles:
-                data["people"].append(person)
-                existing_handles.add(person["handle"].lower())
-
-        _write_people(people_path, data)
-        log.info(f"Wrote {len(to_add)} new person(s) to {people_path}")
+    _write_people(people_path, data)
+    if merge_count or new_people:
+        msg = []
+        if new_people:
+            msg.append(f"{len(new_people)} new")
+        if merge_count:
+            msg.append(f"{merge_count} merged")
+        log.info(f"Wrote {', '.join(msg)} to {people_path}")
     else:
         log.info("No new people to add.")
 
