@@ -124,6 +124,40 @@ versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 | `doc retire` | Retire a document | Moves to `docs/retired/`, adds `status: retired` to frontmatter |
 | `doc import` | Import existing Markdown file | Extracts frontmatter, enriches with git history, supports `--dry-run` |
 
+### Meta File Management
+
+Each document has a companion `.meta.json` file that tracks `version_history` — a log of all changes made to the document.
+
+```bash
+# Validate .meta.json files against the schema
+versioned-md meta validate               # check all docs in the repo
+versioned-md meta validate -p docs/strict/1001.md.meta.json  # specific file
+```
+
+The `version_history` array in each `.meta.json` is validated by CI:
+- Schema enforcement ensures required fields (`version`, `updated_by`, `last_updated`)
+- All fields on existing entries are locked (deep equality check on every field)
+- First PRs can include imported history from other repositories
+- Post-merge, CI appends entries automatically (skips if already present)
+
+### Version History Schema
+
+```json
+{
+  "version_history": [
+    {
+      "version": "1",
+      "updated_by": "jane",
+      "last_updated": "2024-03-20",
+      "reviewer": ["john", "bob"],
+      "commit_hash": "abc1234",
+      "pr_number": 42,
+      "action": "created"
+    }
+  ]
+}
+```
+
 ### People Management
 
 The `people.json` file tracks team members who author and review documentation.

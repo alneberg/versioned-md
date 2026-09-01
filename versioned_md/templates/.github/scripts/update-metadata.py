@@ -186,7 +186,13 @@ def update_single_file(md_path: str, repo: str, pr_number: int | None, reviewers
         "commit_hash": commit_sha,
         "pr_number": pr_number,
     }
-    version_history.append(entry)
+
+    # Only append if not already present (handles imported history in first PR)
+    existing_versions = {h.get("version") for h in version_history if h.get("version")}
+    if new_version not in existing_versions:
+        version_history.append(entry)
+    else:
+        print(f"    Skipping history append — version {new_version} already present")
 
     save_meta(path, {"version_history": version_history})
 

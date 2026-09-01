@@ -108,23 +108,107 @@ def _check_meta_file(meta_path: Path, base_ref: str, pr_ref: str) -> list[str]:
     if pr_content is None:
         return []
 
-    if base_content is None:
-        # New meta file — skip version_history comparison, just ensure it has history
-        return []
-
-    base_data = _load_meta_from_text(base_content)
     pr_data = _load_meta_from_text(pr_content)
 
-    # Compare version_history entries
-    base_history = {h.get("version", ""): h for h in base_data.get("version_history", [])}
-    pr_history = {h.get("version", ""): h for h in pr_data.get("version_history", [])}
+    if base_content is None:
+        # New meta file — validate schema but allow any version_history
+        meta_errors = _validate_meta_schema(pr_data, str(meta_path))
+        errors.extend(meta_errors)
+        return errors
 
-    for version, entry in pr_history.items():
-        if version in base_history:
-            if diff_frontmatter(entry, base_history[version]):
+    base_data = _load_meta_from_text(base_content)
+    base_history = base_data.get("version_history", []) or []
+    pr_history = pr_data.get("version_history", []) or []
+
+    # Schema check on the PR version
+    meta_errors = _validate_meta_schema(pr_data, str(meta_path))
+    errors.extend(meta_errors)
+
+    # PR validation: no new versions, existing entries must not change version/updated_by
+    pr_validation_errors = _validate_pr_history(base_history, pr_history)
+    errors.extend(pr_validation_errors)
+
+    return errors
+
+
+def _validate_meta_schema(data: dict, path: str) -> list[str]:
+    """Basic meta.json schema validation (no jsonschema dependency in CI)."""
+    errors: list[str] = []
+
+    if "version_history" not in data:
+        errors.append(f"{path}: missing required field 'version_history'")
+        return errors
+
+    history = data.get("version_history", []) or []
+    if not isinstance(history, list):
+        errors.append(f"{path}: 'version_history' must be an array")
+        return errors
+
+    valid_actions = {"created", "updated", "promoted", "imported"}
+
+    for i, entry in enumerate(history):
+        if not isinstance(entry, dict):
+            errors.append(f"{path}[{i}]: entry must be an object")
+            continue
+
+        if "version" not in entry:
+            errors.append(f"{path}[{i}]: missing required field 'version'")
+        if "updated_by" not in entry:
+            errors.append(f"{path}[{i}]: missing required field 'updated_by'")
+        if "last_updated" not in entry:
+            errors.append(f"{path}[{i}]: missing required field 'last_updated'")
+        elif not re.match(r"^\d{4}-\d{2}-\d{2}$", str(entry.get("last_updated", ""))):
+            errors.append(f"{path}[{i}]: 'last_updated' must match YYYY-MM-DD")
+
+        action = entry.get("action")
+        if action is not None and action not in valid_actions:
+            errors.append(
+                f"{path}[{i}]: 'action' must be one of {sorted(valid_actions)}, got '{action}'",
+            )
+
+    return errors
+
+
+def _validate_pr_history(base_history: list[dict], pr_history: list[dict]) -> list[str]:
+    """Validate PR version_history against the base branch.
+
+    - No new versions should be added to an existing document.
+    - Existing entries must not have any field changed.
+    - First PR on a new document allows any history (e.g. imports).
+    """
+    errors: list[str] = []
+
+    base_versions = {h.get("version") for h in base_history if h.get("version")}
+    pr_versions = {h.get("version") for h in pr_history if h.get("version")}
+
+    # First PR on a new document — allow any history (e.g. imported history)
+    if not base_versions:
+        return errors
+
+    new_versions = pr_versions - base_versions
+    if new_versions:
+        errors.append(
+            "New version entries added to version_history: "
+            f"{', '.join(sorted(new_versions))}. "
+            "Only version history imports on new documents are allowed.",
+        )
+
+    base_by_version = {h.get("version"): h for h in base_history if h.get("version")}
+    pr_by_version = {h.get("version"): h for h in pr_history if h.get("version")}
+
+    for version in base_versions:
+        base_entry = base_by_version.get(version)
+        pr_entry = pr_by_version.get(version)
+        if base_entry is None or pr_entry is None:
+            continue
+
+        # Compare all fields from the base entry — nothing should change
+        for key in base_entry:
+            if base_entry.get(key) != pr_entry.get(key):
                 errors.append(
-                    f"version history entry {version} in {meta_path} was modified. "
-                    f"Only CI should modify version_history."
+                    f"version_history[{version}]: '{key}' changed from "
+                    f"'{base_entry.get(key)}' to '{pr_entry.get(key)}'. "
+                    "Only CI may modify version_history.",
                 )
 
     return errors

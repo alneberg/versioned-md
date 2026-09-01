@@ -11,6 +11,7 @@ import typer
 from versioned_md.create import CreateApplication
 from versioned_md.doc import DocCreate, DocImport, DocPromote, DocRetire
 from versioned_md.doc import log as doc_log
+from versioned_md.metadata import validate_meta_json
 from versioned_md.people import add_person, deactivate_person, import_people, validate_people_path
 from versioned_md.sync import SyncApplication
 
@@ -22,9 +23,11 @@ app = typer.Typer(
 
 doc_app = typer.Typer()
 people_app = typer.Typer()
+meta_app = typer.Typer()
 
 app.add_typer(doc_app, name="doc", help="Manage documents locally.")
 app.add_typer(people_app, name="people", help="Manage team members in people.json.")
+app.add_typer(meta_app, name="meta", help="Manage meta.json companion files.")
 
 
 @doc_app.command("create")
@@ -330,6 +333,63 @@ def people_import(
         doc_log.error(f"Validation error: {exc}")
         sys.exit(1)
     sys.exit(result or 0)
+
+
+@meta_app.command("validate")
+def meta_validate(
+    directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    path: str = typer.Option(None, "--path", "-p", help="Specific meta.json to validate."),
+):
+    """Validate meta.json files against the schema."""
+    repo_dir = Path(directory)
+    if not repo_dir.exists():
+        typer.echo(f"Error: Directory '{directory}' not found.", err=True)
+        sys.exit(1)
+
+    files_to_check: list[Path] = []
+    if path:
+        fp = Path(path)
+        if fp.exists():
+            files_to_check.append(fp)
+        else:
+            typer.echo(f"Error: File '{path}' not found.", err=True)
+            sys.exit(1)
+    else:
+        for md_file in repo_dir.rglob("*.md"):
+            files_to_check.append(md_file)
+
+    all_ok = True
+    for check_path in files_to_check:
+        # If -p specified a meta.json, use it directly; otherwise look for companion
+        if str(check_path).endswith(".meta.json"):
+            meta_path = check_path
+        elif check_path.suffix in (".md", ".txt", ".rst"):
+            meta_path = check_path.with_suffix(".meta.json")
+        else:
+            meta_path = check_path.with_suffix(".meta.json")
+        if not meta_path.exists():
+            path_is_meta = str(check_path).endswith(".meta.json")
+            if path_is_meta:
+                print(f"  {check_path}: no such file")
+            else:
+                print(f"  {check_path}: no companion meta.json found")
+            all_ok = False
+            continue
+
+        is_valid, errors = validate_meta_json(meta_path)
+        if is_valid:
+            print(f"  {check_path}: OK")
+        else:
+            print(f"  {check_path}: FAILED")
+            for e in errors:
+                print(f"    - {e}")
+            all_ok = False
+
+    if not all_ok:
+        sys.exit(1)
+
+    print("Meta validation passed.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
