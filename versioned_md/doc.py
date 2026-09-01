@@ -123,6 +123,48 @@ def _load_meta(path: Path) -> dict:
     return {"version_history": []}
 
 
+def _merge_version_history(
+    dest_path: Path,
+    source_history: list[dict],
+    *,
+    skip_existing: bool = False,
+) -> list[dict]:
+    """Merge source version_history into the destination's history.
+
+    Skips entries that already exist in the destination (by version key).
+    Sets action='imported' on copied entries.
+    """
+    dest_data = _load_meta(dest_path)
+    dest_history = dest_data.get("version_history") or []
+    dest_by_version = {h.get("version") for h in dest_history if h.get("version")}
+
+    merged = list(dest_history)
+
+    for entry in source_history:
+        if not isinstance(entry, dict):
+            continue
+        version = entry.get("version")
+        if version and skip_existing and version in dest_by_version:
+            continue
+        if version:
+            dest_by_version.add(version)
+        entry_with_action = dict(entry)
+        entry_with_action["action"] = entry_with_action.get("action") or "imported"
+        merged.append(entry_with_action)
+
+    return merged
+
+
+def _merge_history_from_json(dest_path: Path, source_data: dict, *, skip_existing: bool = False) -> int:
+    """Merge version_history from a JSON-parsed source .meta.json.
+
+    Returns the number of entries that were actually imported.
+    """
+    source_history = source_data.get("version_history") or []
+    merged = _merge_version_history(dest_path, source_history, skip_existing=skip_existing)
+    return len([e for e in merged if e.get("action") == "imported"])
+
+
 def _save_meta(path: Path, data: dict) -> None:
     """Save companion .meta.json for a document."""
     meta_path = path.with_suffix(".meta.json")
@@ -530,6 +572,7 @@ class DocImport:
         dry_run: bool = False,
         force: bool = False,
         skip_existing: bool = False,
+        skip_history: bool = False,
     ):
         self.source = source
         self.category = category
@@ -538,6 +581,7 @@ class DocImport:
         self.dry_run = dry_run
         self.force = force
         self.skip_existing = skip_existing
+        self.skip_history = skip_history
 
     def run(self, repo_dir: Path) -> int:
         source_path = Path(self.source)
@@ -654,14 +698,44 @@ class DocImport:
             log.info(f"  documentId: {document_id}")
             if source_path.exists():
                 log.info(f"  source: {source_path}")
+            source_meta_path = source_path.with_suffix(".meta.json")
+            if not self.skip_history and source_meta_path.exists():
+                source_meta_data = yaml.safe_load(
+                    source_meta_path.read_text(encoding="utf-8")
+                ) or {}
+                history = source_meta_data.get("version_history") or []
+                merged = _merge_version_history(target_path, history, skip_existing=self.skip_existing)
+                log.info(f"  version_history: {len(history)} entries")
+                skipped = len(history) - len([e for e in merged if e.get("action") == "imported"])
+                if skipped:
+                    log.info(f"  {skipped} versions already exist (skipped with --skip-existing)")
+            elif self.skip_history:
+                log.info("  version_history: skipped (--skip-history)")
+            else:
+                log.info("  version_history: no source .meta.json found")
             return 0
 
         # Create target directory and write
         target_path.parent.mkdir(parents=True, exist_ok=True)
         _write_frontmatter(target_path, meta, body)
 
-        # Create companion .meta.json
-        _save_meta(target_path, {"version_history": []})
+        # Create companion .meta.json with merged version_history
+        source_meta_path = source_path.with_suffix(".meta.json")
+        if not self.skip_history and source_meta_path.exists():
+            source_meta_data = yaml.safe_load(
+                source_meta_path.read_text(encoding="utf-8")
+            ) or {}
+            history = source_meta_data.get("version_history") or []
+            merged = _merge_version_history(target_path, history, skip_existing=self.skip_existing)
+            _save_meta(target_path, {"version_history": merged})
+            imported = len([e for e in merged if e.get("action") == "imported"])
+            log.info(f"  version_history: {imported} entries imported")
+        else:
+            _save_meta(target_path, {"version_history": []})
+            if self.skip_history:
+                log.info("  version_history: skipped (--skip-history)")
+            else:
+                log.info("  version_history: no source .meta.json found")
 
         log.info(f"Imported: {source_path} -> {target_path}")
         log.info(f"  title: {meta.get('title')}")

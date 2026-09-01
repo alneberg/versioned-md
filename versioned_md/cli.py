@@ -99,12 +99,20 @@ def doc_import(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the import without writing files."),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing document at destination."),
     skip_existing: bool = typer.Option(False, "--skip-existing", "-k", help="Skip if destination already exists."),
+    skip_history: bool = typer.Option(
+        False, "--skip-history",
+        help="Don't copy version_history from source .meta.json."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
 ):
     """Import an existing markdown file into the versioned-md structure.
 
     Reads frontmatter from the source file, enriches metadata from git history,
     and writes the document to the appropriate category directory.
+
+    If a source .meta.json file exists alongside the source markdown, its
+    version_history is automatically merged into the destination's history.
+    Use --skip-history to disable this behavior.
     """
     logging.basicConfig(level="DEBUG" if verbose else "INFO", format="%(levelname)s: %(message)s")
 
@@ -122,6 +130,7 @@ def doc_import(
             dry_run=dry_run,
             force=force,
             skip_existing=skip_existing,
+            skip_history=skip_history,
         ).run(repo_dir)
     except ValueError as exc:
         doc_log.error(f"Validation error: {exc}")

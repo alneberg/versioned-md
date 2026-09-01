@@ -122,7 +122,7 @@ versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 | `doc create` | Create a new document | Prompts for category; drafts get auto-assigned docId, strict asks for a number |
 | `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
 | `doc retire` | Retire a document | Moves to `docs/retired/`, adds `status: retired` to frontmatter |
-| `doc import` | Import existing Markdown file | Extracts frontmatter, enriches with git history, supports `--dry-run` |
+| `doc import` | Import existing Markdown file | Extracts frontmatter, enriches with git history, auto-imports `version_history` from source `.meta.json`, supports `--dry-run` |
 
 ### Meta File Management
 
