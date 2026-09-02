@@ -237,6 +237,25 @@ versioned-md doc import -s my-file.md -c draft --skip-history
 
 The `--skip-history` flag disables automatic `version_history` merging from the source `.meta.json`, useful when importing documents that already exist in the target repo.
 
+## Standard Operating Procedures
+
+Step-by-step guides for common documentation workflows. These ship with every repository created by `versioned-md create` and are available in `docs/sop/` after bootstrapping.
+
+- [Getting Started](versioned_md/templates/docs/sop/01-getting-started.md) — Create a repo from scratch, bootstrap with people and first document
+- [Creating Documents](versioned_md/templates/docs/sop/02-creating-docs.md) — Drafts, strict documents, and reference docs
+- [Document Lifecycle](versioned_md/templates/docs/sop/03-document-lifecycle.md) — Promote drafts to strict, retire outdated docs, import from elsewhere
+- [Team Management](versioned_md/templates/docs/sop/04-team-management.md) — Add people, bulk import from GitHub, deactivate team members
+- [CI & Governance](versioned_md/templates/docs/sop/05-ci-governance.md) — The PR workflow, CI checks, and what happens on merge
+- [Maintenance & Admin](versioned_md/templates/docs/sop/06-maintenance-admin.md) — Update CI templates, validate metadata, migrate legacy repos
+- [Reference](versioned_md/templates/docs/sop/07-reference.md) — Field reference (mutable vs protected), version history rules, troubleshooting
+
+You can also open these from your own repo after running `versioned-md create`:
+
+```bash
+# View the SOPs in your local docs directory
+ls docs/sop/
+```
+
 ## Development
 
 ```bash

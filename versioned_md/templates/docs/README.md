@@ -51,4 +51,16 @@ When a PR is merged, the `update-metadata.yml` workflow runs automatically to:
 
 The CI blocks squash and rebase merges — only "Create a merge commit" is allowed, ensuring every merge has a corresponding PR number and merge commit SHA.
 
+## SOPs
+
+Standard Operating Procedures for common documentation workflows:
+
+- [Getting Started](sop/01-getting-started.md) — Create a repo, bootstrap for first use
+- [Creating Docs](sop/02-creating-docs.md) — Drafts, strict, and reference documents
+- [Document Lifecycle](sop/03-document-lifecycle.md) — Promote, retire, and import documents
+- [Team Management](sop/04-team-management.md) — Adding people, bulk imports, deactivation
+- [CI & Governance](sop/05-ci-governance.md) — The PR workflow, CI checks, and post-merge automation
+- [Maintenance & Admin](sop/06-maintenance-admin.md) — Updating CI, validating metadata, migrating legacy repos
+- [Reference](sop/07-reference.md) — Field reference, version history rules, and troubleshooting
+
 For more information, see the [project README](../README.md).
