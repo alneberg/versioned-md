@@ -28,16 +28,16 @@ automatically.
 
 ## How It Works
 
-1. **Authors write Markdown docs** in `docs/{strict,drafts,reference}/` with YAML frontmatter
+1. **Authors write Markdown docs** in `docs/{strict,drafts,reference}/` — metadata lives in companion `.meta.json` files
 2. **Open a PR** — the `check-header.yml` workflow validates that protected metadata isn't tampered with
 3. **Review and merge the PR**
 4. **Merge triggers updates** — the `update-metadata.yml` workflow runs on every merge to:
-   - Bump the version number
-   - Record who updated the document and when
-   - Store approved reviewers
-   - Track the PR number (in both frontmatter and `.meta.json`)
-   - Maintain `version_history` in companion `.meta.json` files
-5. **Static output** — any MkDocs, Starlight, or custom tooling can consume the frontmatter + `.meta.json` files
+    - Bump the version number
+    - Record who updated the document and when
+    - Store approved reviewers
+    - Track the PR number
+    - Maintain `version_history` in companion `.meta.json` files
+5. **Static output** — any MkDocs, Starlight, or custom tooling can consume the `.meta.json` files
 
 ## Document Categories
 

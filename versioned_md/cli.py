@@ -37,10 +37,7 @@ def doc_create(
     category: str = typer.Option("", "--category", "-c", help="Document category (draft or strict)."),
     directory: str = typer.Option(".", "--dir", help="Repository directory (default: current)."),
 ):
-    """Create a new document with frontmatter.
-
-    You'll be prompted for the missing information.
-    """
+    """Create a new document with top-level metadata in .meta.json."""
     repo_dir = Path(directory)
     if not repo_dir.exists():
         typer.echo(f"Error: Directory '{directory}' not found.", err=True)
@@ -100,15 +97,14 @@ def doc_import(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing document at destination."),
     skip_existing: bool = typer.Option(False, "--skip-existing", "-k", help="Skip if destination already exists."),
     skip_history: bool = typer.Option(
-        False, "--skip-history",
-        help="Don't copy version_history from source .meta.json."
+        False, "--skip-history", help="Don't copy version_history from source .meta.json."
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
 ):
     """Import an existing markdown file into the versioned-md structure.
 
-    Reads frontmatter from the source file, enriches metadata from git history,
-    and writes the document to the appropriate category directory.
+    Enriches metadata from git history, writes top-level fields to .meta.json.
+    The .meta.json file is the single source of truth for all document metadata.
 
     If a source .meta.json file exists alongside the source markdown, its
     version_history is automatically merged into the destination's history.
@@ -155,8 +151,7 @@ def doc(
         sys.exit(1)
 
     if invisible:
-        # Show document summary
-        from versioned_md.doc import _find_all_md, _parse_frontmatter
+        from versioned_md.metadata import load_meta
 
         categories = ("strict", "draft", "reference")
         doc_lists: dict[str, list[dict]] = {cat: [] for cat in categories}
@@ -164,16 +159,17 @@ def doc(
             cat_dir = repo_dir / "docs" / cat
             if not cat_dir.exists():
                 continue
-            for md_file in _find_all_md(cat_dir):
+            for md_file in cat_dir.rglob("*.md"):
                 try:
-                    meta, _ = _parse_frontmatter(md_file)
+                    meta = load_meta(md_file)
                     doc_lists[cat].append(meta)
                 except Exception:
                     continue
 
         for cat in categories:
             docs = doc_lists[cat]
-            if cat_dir := repo_dir / "docs" / cat:
+            cat_dir_obj = repo_dir / "docs" / cat
+            if docs and cat_dir_obj.exists():
                 if docs:
                     typer.echo(f"\n  {cat.upper()} ({len(docs)} documents)")
                     for meta in docs:
@@ -264,7 +260,10 @@ def people_add(
     handle: str = typer.Option(None, "--handle", "-h", help="Person handle (e.g. github username)."),
     initials: str = typer.Option(None, "--initials", "-i", help="Person initials (e.g. JD)"),
     aliases: list[str] = typer.Option(  # noqa: C901
-        None, "--alias", "-a", help="Extra aliases. Repeatable or comma-separated.",
+        None,
+        "--alias",
+        "-a",
+        help="Extra aliases. Repeatable or comma-separated.",
     ),
 ):
     """Add a person to the repository's people.json."""

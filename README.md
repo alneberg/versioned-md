@@ -19,16 +19,16 @@ The backbone of versioned-md is Github Actions workflows and Python tooling to h
 
 ## How It Works
 
-1. **Authors write Markdown docs** in `docs/{strict,drafts,reference}/` with YAML frontmatter
+1. **Authors write Markdown docs** in `docs/{strict,drafts,reference}/` — metadata lives in companion `.meta.json` files
 2. **Open a PR** — the `check-header.yml` workflow validates that protected metadata isn't tampered with
 3. **Review and merge the PR**
 4. **Merge triggers updates** — the `update-metadata.yml` workflow runs on every merge to:
     - Bump the version number
     - Record who updated the document and when
     - Store approved reviewers
-    - Track the PR number (in both frontmatter and `.meta.json`)
+    - Track the PR number
     - Maintain `version_history` in companion `.meta.json` files
-5. **Static output** — any MkDocs, Starlight, or custom tooling can consume the frontmatter + `.meta.json` files at will
+5. **Static output** — any MkDocs, Starlight, or custom tooling can consume the `.meta.json` files at will
 
 ## Document Categories
 
@@ -121,7 +121,7 @@ versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 |---|---|---|
 | `doc create` | Create a new document | Prompts for category; drafts get auto-assigned docId, strict asks for a number |
 | `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
-| `doc retire` | Retire a document | Moves to `docs/retired/`, adds `status: retired` to frontmatter |
+| `doc retire` | Retire a document | Moves to `docs/retired/`, sets `status: retired` in `.meta.json` |
 | `doc import` | Import existing Markdown file | Extracts frontmatter, enriches with git history, auto-imports `version_history` from source `.meta.json`, supports `--dry-run` |
 
 ### Meta File Management
@@ -183,26 +183,59 @@ Not a GitHub repo — the command falls back to git log only.
 
 You'll need at least one person in `people.json` to create documents. Use `versioned-md people add` or `versioned-md people import` to populate it.
 
-## Example Frontmatter
+## Metadata Storage
 
-```yaml
----
-title: "System Architecture"
-description: "High-level NGI architecture overview"
-category: strict
-documentId: "1001"
-lastUpdated: 2026-06-25
-updatedBy: johannes
-reviewer:
-  - sarah
-  - mike
-prNumber: "42"
-version: "1"
-commitHash: "a1b2c3d"
----
+All document metadata is stored in a companion `.meta.json` file alongside each Markdown file. The Markdown body contains no frontmatter — `.meta.json` is the single source of truth.
 
-# Document body here...
+```json
+{
+  "title": "System Architecture",
+  "description": "High-level NGI architecture overview",
+  "category": "strict",
+  "documentId": "1001",
+  "responsible": "johannes",
+  "status": "active",
+  "version": "1",
+  "lastUpdated": "2026-06-25",
+  "updatedBy": "johannes",
+  "reviewer": ["sarah", "mike"],
+  "commitHash": "a1b2c3d",
+  "prNumber": "42",
+  "version_history": [...]
+}
 ```
+
+### Field Categories
+
+| Type | Fields | Who Changes |
+|---|---|---|
+| **Mutable** | `title`, `description`, `responsible` | Authors in PRs |
+| **Protected** | `category`, `documentId`, `status`, `version`, `lastUpdated`, `updatedBy`, `reviewer`, `commitHash`, `prNumber` | CI only |
+
+The `responsible` field tracks the person owning the document. It is user-mutable and independent of git committer metadata.
+
+### Schema Rules Enforced by CI
+
+- `category` must match the document's parent directory (`strict`, `draft`, or `retired`)
+- `documentId` must be a unique 4-digit number for `strict` and `draft` categories
+- `strict` filenames must equal the `documentId` (e.g., `1001.md`)
+- `version_history` entries are immutable once written; only appending new entries is allowed
+- Protected top-level fields cannot be changed in a PR
+- Mutable fields (`title`, `description`, `responsible`) can only change if the Markdown body also changed
+
+### Importing Documents
+
+Use `versioned-md doc import` to bring existing Markdown files into the versioned-md structure. By default, if the source file has a companion `.meta.json`, its `version_history` is automatically merged:
+
+```bash
+# Full import with version_history
+versioned-md doc import -s my-file.md -c draft
+
+# Skip version_history merging
+versioned-md doc import -s my-file.md -c draft --skip-history
+```
+
+The `--skip-history` flag disables automatic `version_history` merging from the source `.meta.json`, useful when importing documents that already exist in the target repo.
 
 ## Development
 

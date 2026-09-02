@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema
-import yaml
 
 log = logging.getLogger(__name__)
 
@@ -23,78 +22,52 @@ try:
 except Exception:
     META_SCHEMA = {"type": "object", "properties": {"version_history": {"type": "array"}}}
 
-FRONTMATTER_DELIMITERS = ("---",)
-PROTECTED_KEYS = ("version", "lastUpdated", "updatedBy", "reviewer", "commitHash", "prNumber")
-DOCUMENT_KEYS = (
+# Top-level fields that can only be changed by CI (not in a regular PR)
+PROTECTED_TOP_LEVEL_KEYS = (
+    "category",
+    "documentId",
+    "status",
+    "version",
+    "lastUpdated",
+    "updatedBy",
+    "reviewer",
+    "commitHash",
+    "prNumber",
+)
+
+# Top-level fields that users are allowed to change in a PR
+MUTABLE_TOP_LEVEL_KEYS = ("title", "description", "responsible")
+
+# Fields that are part of frontmatter (for backward compat / migration)
+FRONTMATTER_KEYS = (
     "title",
     "description",
     "documentId",
     "category",
+    "version",
+    "lastUpdated",
+    "updatedBy",
+    "reviewer",
+    "commitHash",
+    "prNumber",
 )
 
 
-def get_protected_keys() -> list[str]:
-    """Return the list of frontmatter keys that CI will not allow to change manually."""
-    return list(PROTECTED_KEYS)
+def get_protected_top_level_keys() -> list[str]:
+    """Return the list of top-level .meta.json keys that CI will not allow to change manually."""
+    return list(PROTECTED_TOP_LEVEL_KEYS)
 
 
-def _parse_frontmatter_from_text(text: str) -> tuple[dict[str, Any], str]:
-    """Split a file's text into frontmatter dict + body text.
-
-    Raises ValueError if no YAML frontmatter block is found.
-    """
-    if not text.startswith("---\n") and not text.startswith("---\r\n"):
-        raise ValueError("No YAML frontmatter found at top of content")
-
-    footer_match = re.search(r"\n---\n", text[4:])
-    if not footer_match:
-        raise ValueError("Missing closing `---` for YAML frontmatter")
-
-    header_end = text[4 : footer_match.start() + 4]
-    body_start = footer_match.start() + 4 + len("---\n")
-    body = text[body_start:] if body_start < len(text) else ""
-
-    try:
-        meta = yaml.safe_load(header_end) or {}
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid YAML in frontmatter: {exc}") from exc
-
-    return meta, body
-
-
-def parse_frontmatter(path: str | Path) -> dict[str, Any]:
-    """Extract frontmatter from a `.md` file."""
-    p = Path(path)
-    text = p.read_text(encoding="utf-8")
-    meta, _ = _parse_frontmatter_from_text(text)
-    return meta
-
-
-def write_frontmatter(path: str | Path, data: dict[str, Any]) -> None:
-    """Rewrite frontmatter in an existing `.md` file, preserving the body."""
-    p = Path(path)
-    text = p.read_text(encoding="utf-8")
-    meta, body = _parse_frontmatter_from_text(text)
-    out = "---\n" + yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False) + "---\n" + body
-    p.write_text(out, encoding="utf-8")
-
-
-def diff_frontmatter(new: dict[str, Any], existing: dict[str, Any], protected_keys: list[str] | None = None) -> bool:
-    """Return ``True`` if any protected key changed between the two dicts."""
-    if protected_keys is None:
-        protected_keys = get_protected_keys()
-    for key in protected_keys:
-        if key in new and key in existing:
-            if new[key] != existing[key]:
-                return True
-    return False
+def get_mutable_top_level_keys() -> list[str]:
+    """Return the list of top-level .meta.json keys that users can change in a PR."""
+    return list(MUTABLE_TOP_LEVEL_KEYS)
 
 
 def load_meta(path: str | Path) -> dict[str, Any]:
     """Read the companion ``*.meta.json`` file for a document.
 
     Returns a dict with a ``version_history`` list (may be empty).
-    Creates the file with an empty list if it does not exist.
+    If the file doesn't exist, creates it with an empty version_history.
     """
     p = Path(path)
     meta_path = p.with_suffix(".meta.json")
@@ -108,7 +81,10 @@ def load_meta(path: str | Path) -> dict[str, Any]:
 
 
 def save_meta(path: str | Path, data: dict[str, Any]) -> None:
-    """Write a ``*.meta.json`` companion file."""
+    """Write a ``*.meta.json`` companion file.
+
+    Uses JSON format (not YAML).
+    """
     p = Path(path)
     meta_path = p.with_suffix(".meta.json")
     meta_path.write_text(
@@ -127,11 +103,10 @@ def bump_version(meta: dict[str, Any]) -> str:
     if not history:
         return "1"
     last = history[-1].get("version", "0")
-    # Attempt numeric increment; fall back to string
     try:
         return str(int(last) + 1)
     except ValueError:
-        return str(int(last) + 1) if last.isdigit() else last
+        return last if last.isdigit() else str(int(last) + 1)
 
 
 DOCUMENT_ID_COUNTER_FILE = ".doc_id_counter.json"
@@ -163,7 +138,6 @@ def generate_document_id() -> str:
     IDs start at 1001 and increment on each call.
     Returns a zero-padded string like ``"1001"``.
     """
-    # Force reload to pick up counter changes
     current = read_next_id()
     save_next_id(current + 1)
     return f"{current:04d}"
@@ -190,7 +164,6 @@ def validate_document_id_format(doc_id: str | None, category: str) -> tuple[bool
             return False, f"Category '{category}' documentId must be 4 digits, got '{doc_id}'"
         return True, ""
 
-    # reference — accept anything
     if not doc_id.strip():
         return False, "documentId must not be empty"
     return True, ""
@@ -224,38 +197,60 @@ def validate_meta_json(path: str | Path) -> tuple[bool, list[str]]:
     if not isinstance(data, dict):
         return False, [f"{p}: top-level value must be an object"]
 
+    # Validate version_history
     if "version_history" not in data:
         errors.append(f"{p}: missing required field 'version_history'")
-        return False, errors
+    else:
+        history = data["version_history"]
+        if not isinstance(history, list):
+            errors.append(f"{p}: 'version_history' must be an array")
 
-    if not isinstance(data["version_history"], list):
-        errors.append(f"{p}: 'version_history' must be an array")
-        return False, errors
+        valid_actions = {"created", "updated", "promoted", "imported"}
 
-    for i, entry in enumerate(data["version_history"]):
-        if "version" not in entry:
-            errors.append(f"{p}[{i}]: missing required field 'version'")
-        elif not isinstance(entry["version"], str):
-            errors.append(f"{p}[{i}]: 'version' must be a string")
+        for i, entry in enumerate(history):
+            if not isinstance(entry, dict):
+                errors.append(f"{p}[{i}]: entry must be an object")
+                continue
 
-        if "updated_by" not in entry:
-            errors.append(f"{p}[{i}]: missing required field 'updated_by'")
-        elif not isinstance(entry["updated_by"], str):
-            errors.append(f"{p}[{i}]: 'updated_by' must be a string")
+            if "version" not in entry:
+                errors.append(f"{p}[{i}]: missing required field 'version'")
+            elif not isinstance(entry["version"], str):
+                errors.append(f"{p}[{i}]: 'version' must be a string")
 
-        if "last_updated" not in entry:
-            errors.append(f"{p}[{i}]: missing required field 'last_updated'")
-        elif not isinstance(entry["last_updated"], str):
-            errors.append(f"{p}[{i}]: 'last_updated' must be a string")
-        elif not re.match(r"^\d{4}-\d{2}-\d{2}$", str(entry["last_updated"])):
-            errors.append(f"{p}[{i}]: 'last_updated' must match YYYY-MM-DD")
+            if "updated_by" not in entry:
+                errors.append(f"{p}[{i}]: missing required field 'updated_by'")
+            elif not isinstance(entry["updated_by"], str):
+                errors.append(f"{p}[{i}]: 'updated_by' must be a string")
 
-        if "action" in entry:
-            valid_actions = {"created", "updated", "promoted", "imported"}
-            if entry["action"] not in valid_actions:
+            if "last_updated" not in entry:
+                errors.append(f"{p}[{i}]: missing required field 'last_updated'")
+            elif not isinstance(entry["last_updated"], str):
+                errors.append(f"{p}[{i}]: 'last_updated' must be a string")
+            elif not re.match(r"^\d{4}-\d{2}-\d{2}$", str(entry["last_updated"])):
+                errors.append(f"{p}[{i}]: 'last_updated' must match YYYY-MM-DD")
+
+            action = entry.get("action")
+            if action is not None and action not in valid_actions:
                 errors.append(
-                    f"{p}[{i}]: 'action' must be one of {sorted(valid_actions)}, got '{entry['action']}'",
+                    f"{p}[{i}]: 'action' must be one of {sorted(valid_actions)}, got '{action}'",
                 )
+
+    # Validate top-level fields
+    category = data.get("category")
+    if category and category not in ("strict", "draft", "retired"):
+        errors.append(f"{p}: 'category' must be one of 'strict', 'draft', 'retired'")
+
+    document_id = data.get("documentId")
+    if category and category in ("strict", "draft"):
+        is_valid, err = validate_document_id_format(document_id, category)
+        if not is_valid:
+            errors.append(f"{p}: {err}")
+        elif isinstance(document_id, str) and len(document_id) != 4:
+            errors.append(f"{p}: 'documentId' must be 4 digits, got '{document_id}'")
+
+    status = data.get("status")
+    if status and status not in ("active", "retired"):
+        errors.append(f"{p}: 'status' must be one of 'active', 'retired'")
 
     if errors:
         return False, errors
@@ -267,7 +262,37 @@ def validate_meta_json(path: str | Path) -> tuple[bool, list[str]]:
         return False, [f"{p}: schema validation failed: {exc.message}"]
 
 
-def validate_meta_pr(base_history: list[dict], pr_history: list[dict]) -> list[str]:
+def validate_meta_pr(base_data: dict[str, Any], pr_data: dict[str, Any]) -> list[str]:
+    """Validate a PR's top-level .meta.json fields against the base branch.
+
+    Protected keys cannot be changed in a PR.
+    Mutable keys can only change if the .md file body also changed.
+    version_history entries must be exactly preserved (or only appended as new).
+
+    Returns a list of error messages (empty = OK).
+    """
+    errors: list[str] = []
+
+    # Check protected top-level fields
+    for key in PROTECTED_TOP_LEVEL_KEYS:
+        base_val = base_data.get(key)
+        pr_val = pr_data.get(key)
+        if base_val is not None and base_val != pr_val:
+            errors.append(
+                f".meta.json: '{key}' changed from '{base_val}' to '{pr_val}'. Only CI may modify this field.",
+            )
+
+    # Validate version_history
+    pr_validation_errors = validate_meta_pr_history(
+        base_data.get("version_history") or [],
+        pr_data.get("version_history") or [],
+    )
+    errors.extend(pr_validation_errors)
+
+    return errors
+
+
+def validate_meta_pr_history(base_history: list[dict], pr_history: list[dict]) -> list[str]:
     """Validate a PR's version_history against the base branch.
 
     Rules:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Check that protected frontmatter fields haven't changed in a PR.
+"""Check that protected .meta.json fields haven't changed in a PR.
 
 For each changed ``*.md`` and ``*.meta.json`` file in the PR:
-  - Load frontmatter from base and PR refs.
+  - Load the companion .meta.json from base and PR refs.
   - Refuse to allow manual changes to protected keys.
   - Validate that ``category`` matches the parent directory.
   - For strict documents, ensure ``documentId`` is unique across the repo.
@@ -11,21 +11,35 @@ Exit code 0 = pass, 1 = fail (print reasons).
 """
 
 import argparse
+import json
 import os
 import sys
+import re
 from pathlib import Path
 
 # Allow importing from parent directory (scripts/ → lib/)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from lib.metadata import (
-    diff_frontmatter,
     find_changed_md_refs,
     find_changed_meta_refs,
-    get_protected_keys,
+    get_latest_commit_message,
+    get_protected_top_level_keys,
     validate_document_id_format,
+    validate_meta_pr,
 )
 from lib.reviewers import fetch_reviewers
+
+
+# Protected top-level keys in .meta.json
+PROTECTED_KEYS = (
+    "category", "documentId", "status",
+    "version", "lastUpdated", "updatedBy",
+    "reviewer", "commitHash", "prNumber",
+)
+
+# Valid categories for documentId
+VALID_CATEGORIES = ("strict", "draft")
 
 
 def files_in_ref(ref: str, pattern: str = "*.md") -> list[str]:
@@ -38,52 +52,66 @@ def files_in_ref(ref: str, pattern: str = "*.md") -> list[str]:
     return [l for l in lines if Path(l).match(pattern)]
 
 
+def _load_meta_from_text(text: str) -> dict:
+    """Load a .meta.json file from raw text."""
+    data = json.loads(text)
+    if "version_history" not in data:
+        data["version_history"] = []
+    return data
+
+
+def _git_show(ref: str, path: str) -> str | None:
+    """Run ``git show ref:path`` and return contents, or None if file doesn't exist."""
+    import subprocess
+
+    cmd = ["git", "show", f"{ref}:{path}"]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
 def _check_md_file(md_path: Path, base_ref: str, pr_ref: str) -> list[str]:
-    """Check a single .md file. Return list of error messages (empty = OK)."""
+    """Check a single .md file's companion .meta.json. Return list of error messages (empty = OK)."""
     errors: list[str] = []
 
-    # Load frontmatter from base and PR refs
-    base_text = _git_show(base_ref, str(md_path))
-    pr_text = _git_show(pr_ref, str(md_path))
+    pr_meta_path = md_path.with_suffix(".meta.json")
+    base_meta_text = _git_show(base_ref, str(pr_meta_path))
+    pr_meta_text = _git_show(pr_ref, str(pr_meta_path))
 
-    if pr_text is None:
-        return []  # file was deleted in PR
+    if pr_meta_text is None and base_meta_text is None:
+        return []  # Neither base nor PR has this file
 
-    if base_text is None:
-        # New file — nothing to compare against, skip protected checks
-        # but validate new-file-specific rules below
-        pass
+    if pr_meta_text is None:
+        return []  # File was deleted/modified in .md but .meta.json was deleted - handled by _check_meta_file
 
-    if base_text is not None:
-        base_meta, _ = _parse_frontmatter_from_text(base_text)
-        pr_meta, _ = _parse_frontmatter_from_text(pr_text)
+    pr_meta = _load_meta_from_text(pr_meta_text)
 
-        # Check protected keys
-        if diff_frontmatter(pr_meta, base_meta, get_protected_keys()):
-            errors.append(
-                f"Protected metadata changed in {md_path}. "
-                f"Only CI should update version, lastUpdated, updatedBy, reviewer, commitHash."
-            )
-    else:
-        pr_meta, _ = _parse_frontmatter_from_text(pr_text)
-
-    # Check category matches parent directory
+    # Validate category matches parent directory
     category = pr_meta.get("category")
-    if category:
-        parent_dir = md_path.parent.name
-        expected_category = "draft" if parent_dir == "drafts" else parent_dir
-        if category != expected_category:
-            errors.append(
-                f"Category mismatch: {md_path} has category='{category}' "
-                f"but parent directory is '{parent_dir}' (expected '{expected_category}')."
-            )
+    expected_category = "draft" if md_path.parent.name == "drafts" else md_path.parent.name
+    if category and category not in ("strict", "draft", "retired"):
+        errors.append(
+            f"Invalid category '{category}' in {pr_meta_path}. "
+            f"Must be 'strict', 'draft', or 'retired'."
+        )
+    elif category and md_path.parent.name == "drafts" and category != "draft":
+        errors.append(
+            f"Category mismatch: {pr_meta_path} has category='{category}' "
+            f"but parent directory is 'drafts' (expected 'draft')."
+        )
+    elif category and md_path.parent.name != "drafts" and category not in (md_path.parent.name, "retired"):
+        errors.append(
+            f"Category mismatch: {pr_meta_path} has category='{category}' "
+            f"but parent directory is '{md_path.parent.name}' (expected '{md_path.parent.name}' or 'retired')."
+        )
 
     # Validate documentId format
     doc_id = pr_meta.get("documentId")
     if category:
         is_valid, error_msg = validate_document_id_format(doc_id, category)
         if not is_valid:
-            errors.append(f"{md_path}: {error_msg}")
+            errors.append(f"{pr_meta_path}: {error_msg}")
 
     # Validate strict filename matches documentId exactly (no title component)
     if category == "strict" and doc_id:
@@ -92,8 +120,26 @@ def _check_md_file(md_path: Path, base_ref: str, pr_ref: str) -> list[str]:
         if actual_name != expected_name:
             errors.append(
                 f"strict filename must match documentId exactly: "
-                f"'{md_path}' has stem '{actual_name}', expected '{expected_name}.md'."
+                f"'{pr_meta_path}' has stem '{actual_name}', expected '{expected_name}.json'."
             )
+
+    # If base has the file, check protected keys haven't changed
+    if base_meta_text is not None:
+        base_meta = _load_meta_from_text(base_meta_text)
+
+        # Compare protected top-level fields
+        for key in PROTECTED_KEYS:
+            base_val = base_meta.get(key)
+            pr_val = pr_meta.get(key)
+            if base_val is not None and base_val != pr_val:
+                errors.append(
+                    f"Protected field '{key}' changed in {pr_meta_path}. "
+                    f"From '{base_val}' to '{pr_val}'. Only CI may modify protected fields."
+                )
+
+        # Validate version_history
+        pr_validation_errors = validate_meta_pr(base_meta, pr_meta)
+        errors.extend(pr_validation_errors)
 
     return errors
 
@@ -109,29 +155,31 @@ def _check_meta_file(meta_path: Path, base_ref: str, pr_ref: str) -> list[str]:
         return []
 
     pr_data = _load_meta_from_text(pr_content)
-
-    if base_content is None:
-        # New meta file — validate schema but allow any version_history
-        meta_errors = _validate_meta_schema(pr_data, str(meta_path))
-        errors.extend(meta_errors)
-        return errors
-
-    base_data = _load_meta_from_text(base_content)
-    base_history = base_data.get("version_history", []) or []
-    pr_history = pr_data.get("version_history", []) or []
-
-    # Schema check on the PR version
-    meta_errors = _validate_meta_schema(pr_data, str(meta_path))
+    meta_errors = _validate_meta_json(pr_data, str(meta_path))
     errors.extend(meta_errors)
 
-    # PR validation: no new versions, existing entries must not change version/updated_by
-    pr_validation_errors = _validate_pr_history(base_history, pr_history)
-    errors.extend(pr_validation_errors)
+    if base_content is not None:
+        base_data = _load_meta_from_text(base_content)
+
+        # Check protected top-level fields
+        for key in PROTECTED_KEYS:
+            base_val = base_data.get(key)
+            pr_val = pr_data.get(key)
+            if base_val is not None and base_val != pr_val:
+                errors.append(
+                    f"Protected field '{key}' changed in {meta_path}. "
+                    f"Only CI may modify version, category, documentId, "
+                    f"lastUpdated, updatedBy, reviewer, commitHash, prNumber, status."
+                )
+
+        # Validate version_history
+        pr_validation_errors = validate_meta_pr(base_data, pr_data)
+        errors.extend(pr_validation_errors)
 
     return errors
 
 
-def _validate_meta_schema(data: dict, path: str) -> list[str]:
+def _validate_meta_json(data: dict, path: str) -> list[str]:
     """Basic meta.json schema validation (no jsonschema dependency in CI)."""
     errors: list[str] = []
 
@@ -169,51 +217,6 @@ def _validate_meta_schema(data: dict, path: str) -> list[str]:
     return errors
 
 
-def _validate_pr_history(base_history: list[dict], pr_history: list[dict]) -> list[str]:
-    """Validate PR version_history against the base branch.
-
-    - No new versions should be added to an existing document.
-    - Existing entries must not have any field changed.
-    - First PR on a new document allows any history (e.g. imports).
-    """
-    errors: list[str] = []
-
-    base_versions = {h.get("version") for h in base_history if h.get("version")}
-    pr_versions = {h.get("version") for h in pr_history if h.get("version")}
-
-    # First PR on a new document — allow any history (e.g. imported history)
-    if not base_versions:
-        return errors
-
-    new_versions = pr_versions - base_versions
-    if new_versions:
-        errors.append(
-            "New version entries added to version_history: "
-            f"{', '.join(sorted(new_versions))}. "
-            "Only version history imports on new documents are allowed.",
-        )
-
-    base_by_version = {h.get("version"): h for h in base_history if h.get("version")}
-    pr_by_version = {h.get("version"): h for h in pr_history if h.get("version")}
-
-    for version in base_versions:
-        base_entry = base_by_version.get(version)
-        pr_entry = pr_by_version.get(version)
-        if base_entry is None or pr_entry is None:
-            continue
-
-        # Compare all fields from the base entry — nothing should change
-        for key in base_entry:
-            if base_entry.get(key) != pr_entry.get(key):
-                errors.append(
-                    f"version_history[{version}]: '{key}' changed from "
-                    f"'{base_entry.get(key)}' to '{pr_entry.get(key)}'. "
-                    "Only CI may modify version_history.",
-                )
-
-    return errors
-
-
 def _check_strict_uniqueness(md_path: Path, pr_ref: str) -> list[str]:
     """Check that documentId is unique across all strict documents in the PR ref.
 
@@ -224,18 +227,17 @@ def _check_strict_uniqueness(md_path: Path, pr_ref: str) -> list[str]:
     strict_files = files_in_ref(pr_ref, "*.md")
     ids_seen: dict[str, str] = {}  # documentId → file path
 
-    categories_to_check = ("strict", "draft")
-
     for f in strict_files:
         path = Path(f)
-        if path.parent.name not in categories_to_check:
+        if path.parent.name not in ("strict", "draft"):
             continue
-        text = _git_show(pr_ref, f)
+        meta_path = path.with_suffix(".meta.json")
+        text = _git_show(pr_ref, str(meta_path))
         if text is None:
             continue
         try:
-            meta, _ = _parse_frontmatter_from_text(text)
-        except ValueError:
+            meta = _load_meta_from_text(text)
+        except (json.JSONDecodeError, ValueError):
             continue
 
         doc_id = meta.get("documentId", "")
@@ -248,47 +250,6 @@ def _check_strict_uniqueness(md_path: Path, pr_ref: str) -> list[str]:
             ids_seen[doc_id] = f
 
     return errors
-
-
-def _git_show(ref: str, path: str) -> str | None:
-    """Run ``git show ref:path`` and return contents, or None if file doesn't exist."""
-    import subprocess
-
-    cmd = ["git", "show", f"{ref}:{path}"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        return None
-    return result.stdout
-
-
-def _parse_frontmatter_from_text(text: str) -> tuple[dict, str]:
-    """Minimal frontmatter splitter (mirrors lib.metadata internals)."""
-    import re
-
-    import yaml
-
-    if not text.startswith("---\n") and not text.startswith("---\r\n"):
-        raise ValueError("No frontmatter")
-    footer = re.search(r"\n---\n", text[4:])
-    if not footer:
-        raise ValueError("No closing ---")
-    header = text[4 : footer.start() + 4]
-    body = text[footer.start() + 4 + 4 :]
-    try:
-        meta = yaml.safe_load(header) or {}
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid YAML: {exc}") from exc
-    return meta, body
-
-
-def _load_meta_from_text(text: str) -> dict:
-    """Load a .meta.json file from raw text."""
-    import json
-
-    data = json.loads(text)
-    if "version_history" not in data:
-        data["version_history"] = []
-    return data
 
 
 def _validate_people_in_people_json(
@@ -304,23 +265,18 @@ def _validate_people_in_people_json(
     """
     errors: list[str] = []
 
-    # Load people.json from the base ref
     people_text = _git_show(base_ref, "people.json")
     if not people_text:
         errors.append("people.json not found in the base branch. Cannot validate people.")
         return errors
 
     try:
-        import json
-
         people_data = json.loads(people_text)
-        # people.json format: { "people": [{ "handle": "...", ... }, ...] }
         people_handles = {p.get("handle", "") for p in people_data.get("people", [])}
     except (json.JSONDecodeError, KeyError):
         errors.append("people.json has invalid structure. Expected { \"people\": [...] }")
         return errors
 
-    # Check PR author
     if pr_author:
         if pr_author not in people_handles:
             errors.append(
@@ -328,7 +284,6 @@ def _validate_people_in_people_json(
                 f"Run 'versioned-md people import' to add them."
             )
 
-    # Fetch approved reviewers and validate each
     if repo and token:
         try:
             approved_reviewers = fetch_reviewers(pr_number, repo, token)
@@ -339,7 +294,6 @@ def _validate_people_in_people_json(
                         f"Run 'versioned-md people import' to add them."
                     )
         except Exception as e:
-            # Reviewer validation failure is a warning, not a hard error
             print(f"WARNING: could not fetch reviewers for PR #{pr_number}: {e}")
 
     return errors
@@ -363,6 +317,14 @@ def main() -> int:
             _validate_people_in_people_json(args.pr_author, args.pr_number, args.repo, args.base_ref, token)
         )
 
+    # Also validate people against the merge commit if it's a merge commit
+    if args.pr_number and token:
+        commit_msg = get_latest_commit_message()
+        if "pull request" in commit_msg.lower() or "merge branch" in commit_msg.lower():
+            errors.extend(
+                _validate_people_in_people_json(args.pr_author, args.pr_number, args.repo, args.base_ref, token)
+            )
+
     # Check changed .md files
     md_files = find_changed_md_refs(args.base_ref, args.pr_ref)
     for mf in md_files:
@@ -373,14 +335,13 @@ def main() -> int:
         errors.extend(file_errors)
 
         # Check strict unique documentId
-        category = None
         try:
-            mf_pr_text = _git_show(args.pr_ref, str(path))
+            mf_pr_text = _git_show(args.pr_ref, str(path.with_suffix(".meta.json")))
             if mf_pr_text:
-                meta, _ = _parse_frontmatter_from_text(mf_pr_text)
+                meta = _load_meta_from_text(mf_pr_text)
                 category = meta.get("category")
-        except (ValueError, FileNotFoundError):
-            pass
+        except (json.JSONDecodeError, ValueError):
+            category = None
 
         if category == "strict":
             unique_errors = _check_strict_uniqueness(path, args.pr_ref)

@@ -1,12 +1,11 @@
 """Manage documents locally within a documentation repository."""
 
+import json
 import logging
 import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-
-import yaml
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ def _load_counter(repo_dir: Path) -> int:
     counter_path = repo_dir / ".doc_id_counter.json"
     if counter_path.exists():
         try:
-            data = yaml.safe_load(counter_path.read_text(encoding="utf-8"))
+            data = json.loads(counter_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return int(data.get("next_id", 1001))
         except Exception:
@@ -96,7 +95,7 @@ def _load_counter(repo_dir: Path) -> int:
 def _save_counter(repo_dir: Path, n: int) -> None:
     """Save next document ID counter."""
     counter_path = repo_dir / ".doc_id_counter.json"
-    counter_path.write_text(yaml.dump({"next_id": n}, default_flow_style=False) + "\n", encoding="utf-8")
+    counter_path.write_text(json.dumps({"next_id": n}, indent=2) + "\n", encoding="utf-8")
 
 
 def _next_id(repo_dir: Path, skip_ids: set[str] | None = None, *, save: bool = True) -> str:
@@ -117,7 +116,7 @@ def _load_meta(path: Path) -> dict:
     meta_path = path.with_suffix(".meta.json")
     if meta_path.exists():
         try:
-            return yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+            return json.loads(meta_path.read_text(encoding="utf-8")) or {}
         except Exception:
             return {}
     return {"version_history": []}
@@ -168,7 +167,10 @@ def _merge_history_from_json(dest_path: Path, source_data: dict, *, skip_existin
 def _save_meta(path: Path, data: dict) -> None:
     """Save companion .meta.json for a document."""
     meta_path = path.with_suffix(".meta.json")
-    meta_path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True) + "\n", encoding="utf-8")
+    meta_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _slugify(text: str) -> str:
@@ -179,31 +181,6 @@ def _slugify(text: str) -> str:
     text = re.sub(r"[^\w\s-]", "", text)
     text = re.sub(r"[\s_]+", "-", text)
     return text
-
-
-def _parse_frontmatter(path: Path) -> tuple[dict, str]:
-    """Parse frontmatter and body from a markdown file."""
-    text = path.read_text(encoding="utf-8")
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        raise ValueError(f"No frontmatter found in {path}")
-    fm_end = 1
-    while fm_end < len(lines):
-        if lines[fm_end].strip() == "---":
-            break
-        fm_end += 1
-    else:
-        raise ValueError(f"No closing --- in frontmatter of {path}")
-    fm_text = "\n".join(lines[1:fm_end])
-    body = "\n".join(lines[fm_end + 1 :]) if fm_end + 1 < len(lines) else ""
-    meta = yaml.safe_load(fm_text) or {}
-    return meta, body
-
-
-def _write_frontmatter(path: Path, meta: dict, body: str) -> None:
-    """Rewrite frontmatter while preserving body."""
-    fm = "---\n" + yaml.dump(meta, default_flow_style=False, allow_unicode=True) + "---\n"
-    path.write_text(fm + body, encoding="utf-8")
 
 
 def _find_all_md(base_dir: Path) -> list[Path]:
@@ -217,7 +194,7 @@ def _find_all_md(base_dir: Path) -> list[Path]:
 
 
 def _collect_existing_ids(repo_dir: Path, category: str) -> dict[str, Path]:
-    """Map documentId to path for a given category."""
+    """Map documentId to path for a given category, using .meta.json."""
     ids: dict[str, Path] = {}
     base = CAT_DIR_MAP.get(category)
     if not base:
@@ -227,13 +204,31 @@ def _collect_existing_ids(repo_dir: Path, category: str) -> dict[str, Path]:
         return ids
     for md_file in _find_all_md(base_path):
         try:
-            meta, _ = _parse_frontmatter(md_file)
+            meta = _load_meta(md_file)
             did = meta.get("documentId", "")
             if did:
                 ids[did] = md_file
         except Exception:
             continue
     return ids
+
+
+def _validate_document_id(doc_id: str) -> None:
+    """Validate that a documentId is a 4-digit number."""
+    doc_id = str(doc_id)
+    if not doc_id.isdigit():
+        raise ValueError(f"DocumentId must be numeric: {doc_id}")
+    if len(doc_id) != 4:
+        raise ValueError(f"DocumentId must be 4 digits, got {len(doc_id)}: {doc_id}")
+
+
+def _write_md_file(path: Path, title: str, description: str, body: str = "") -> None:
+    """Write a plain markdown file (no frontmatter)."""
+    if body:
+        content = body
+    else:
+        content = DOC_BODY_TEMPLATE.format(title=title, description=description)
+    path.write_text(content, encoding="utf-8")
 
 
 class DocCreate:
@@ -296,64 +291,52 @@ class DocCreate:
         # Ensure parent directory exists
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Auto-fill fields
-        meta, existing_body = _parse_frontmatter(target_path) if target_path.exists() else ({}, "")
-
-        if not meta.get("title"):
-            meta["title"] = self.title
-        if not meta.get("description"):
-            meta["description"] = self.description
-        if not meta.get("category"):
-            meta["category"] = self.category
-
         # Set documentId: use user-entered number for strict, auto-assign for draft
         if self.category == "strict":
-            meta["documentId"] = doc_number
+            document_id = doc_number
         else:
-            if not meta.get("documentId"):
-                # Collect IDs from all categories to avoid collisions
-                skip_ids = set()
-                for cat in CAT_DIR_MAP:
-                    skip_ids.update(_collect_existing_ids(repo_dir, cat))
-                meta["documentId"] = _next_id(repo_dir, skip_ids)
-                print(f"  Auto-assigned documentId: {meta['documentId']}")
+            skip_ids = set()
+            for cat in CAT_DIR_MAP:
+                skip_ids.update(_collect_existing_ids(repo_dir, cat))
+            document_id = _next_id(repo_dir, skip_ids)
+            print(f"  Auto-assigned documentId: {document_id}")
 
-        # Populate remaining metadata
-        if not meta.get("lastUpdated"):
-            meta["lastUpdated"] = datetime.now(UTC).strftime("%Y-%m-%d")
-        if not meta.get("updatedBy"):
-            meta["updatedBy"], _ = _git_info()
-        if not meta.get("version"):
-            meta["version"] = "0"
-        if not meta.get("prNumber"):
-            meta["prNumber"] = ""
-        if not meta.get("commitHash"):
-            meta["commitHash"] = ""
+        # Collect git info
+        author, date = _git_info()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
 
-        # Build document body if none exists
-        if not existing_body.strip():
-            body = DOC_BODY_TEMPLATE.format(title=self.title, description=self.description)
-        else:
-            body = existing_body
+        # Build .meta.json
+        meta_json = {
+            "title": self.title,
+            "description": self.description,
+            "category": self.category,
+            "documentId": document_id,
+            "status": "active",
+            "version": "0",
+            "lastUpdated": today,
+            "updatedBy": author,
+            "reviewer": [],
+            "commitHash": "",
+            "prNumber": "",
+            "version_history": [],
+        }
 
-        # Handle existing file
+        # Handle existing file vs new file
         if target_path.exists():
-            # Merge frontmatter
-            pass
+            log.info(f"Overwriting existing file: {target_path}")
         else:
             log.info(f"Creating: {target_path}")
 
-        _write_frontmatter(target_path, meta, body)
+        # Write plain markdown file (no frontmatter)
+        _write_md_file(target_path, self.title, self.description)
 
-        # Create .meta.json if it doesn't exist
-        meta_path = target_path.with_suffix(".meta.json")
-        if not meta_path.exists():
-            _save_meta(target_path, {"version_history": []})
+        # Save .meta.json
+        _save_meta(target_path, meta_json)
 
         log.info(f"Created document: {target_path}")
-        log.info(f"  title: {meta.get('title')}")
-        log.info(f"  category: {meta.get('category')}")
-        log.info(f"  documentId: {meta.get('documentId', 'N/A')}")
+        log.info(f"  title: {self.title}")
+        log.info(f"  category: {self.category}")
+        log.info(f"  documentId: {document_id}")
         return 0
 
     def _prompt(self, message: str, default: str = "") -> str:
@@ -392,7 +375,7 @@ class DocPromote:
             log.error(f"File not found: {src_path}")
             return 1
 
-        meta, body = _parse_frontmatter(src_path)
+        meta = _load_meta(src_path)
 
         # Validate current category
         current_category = meta.get("category", "")
@@ -416,7 +399,6 @@ class DocPromote:
         document_id = meta.get("documentId", "")
         if self.category == "strict":
             if not document_id:
-                # Auto-assign a documentId, skipping IDs used in other categories
                 skip_ids = set()
                 for cat in CAT_DIR_MAP:
                     skip_ids.update(_collect_existing_ids(repo_dir, cat))
@@ -424,7 +406,6 @@ class DocPromote:
                     skip_ids.discard(src_path.name.replace(".md", ""))
                 document_id = _next_id(repo_dir, skip_ids)
                 log.info(f"Auto-assigned documentId for promotion: {document_id}")
-                meta["documentId"] = document_id
             target_path = target_dir / f"{document_id}.md"
 
         # Validate uniqueness
@@ -433,7 +414,7 @@ class DocPromote:
             log.error(f"DocumentId '{document_id}' already exists at {existing[document_id]}.")
             return 1
 
-        # Update frontmatter
+        # Update .meta.json fields
         meta["category"] = self.category
         meta["lastUpdated"] = datetime.now(UTC).strftime("%Y-%m-%d")
         meta["updatedBy"], _ = _git_info()
@@ -448,21 +429,27 @@ class DocPromote:
             import shutil
 
             shutil.copy2(old_meta_path, new_meta_path)
+            # Will be updated further below
+        elif old_meta_path.exists():
+            import shutil
+
+            shutil.copy2(old_meta_path, new_meta_path)
+            new_meta_path = old_meta_path
 
         # Rename in-progress doc to avoid conflict
         if target_path.exists():
             log.error(f"Target path already exists: {target_path}. Remove or rename '{target_path}' before promoting.")
             return 1
 
-        # Move the file
+        # Move the .md file
         import shutil
 
         shutil.copy2(src_path, target_path)
         src_path.unlink()
         log.info(f"Promoted: {src_path} -> {target_path}")
 
-        # Update frontmatter
-        _write_frontmatter(target_path, meta, body)
+        # Update .meta.json at new location
+        _save_meta(target_path, meta)
 
         log.info(f"  documentId: {meta.get('documentId')}")
         return 0
@@ -499,7 +486,7 @@ class DocRetire:
         if not self.reason:
             self.reason = self._prompt("Reason for retirement", default="")
 
-        meta, body = _parse_frontmatter(src_path)
+        meta = _load_meta(src_path)
 
         # Ensure retired directory exists
         retired_dir = repo_dir / "docs" / "retired"
@@ -519,24 +506,19 @@ class DocRetire:
         src_path.unlink()
         log.info(f"Retired: {src_path} -> {new_path}")
 
-        # Update frontmatter
+        # Update .meta.json
+        author, _ = _git_info()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         meta["status"] = "retired"
-        meta["retiredBy"], _ = _git_info()
-        meta["retiredDate"] = datetime.now(UTC).strftime("%Y-%m-%d")
+        meta["statusChangedBy"] = author
+        meta["lastUpdated"] = today
+        meta["updatedBy"] = author
+
         if self.reason:
             meta["retiredReason"] = self.reason
-        meta["lastUpdated"] = datetime.now(UTC).strftime("%Y-%m-%d")
-        meta["updatedBy"], _ = _git_info()
 
-        _write_frontmatter(new_path, meta, body)
-
-        # Copy .meta.json companion file too
-        src_meta = src_path.with_suffix(".meta.json")
-        new_meta = new_path.with_suffix(".meta.json")
-        if src_meta.exists():
-            import shutil
-
-            shutil.copy2(src_meta, new_meta)
+        # Save .meta.json at new location
+        _save_meta(new_path, meta)
 
         log.info("  status: retired")
         log.info(f"  reason: {self.reason or '(none provided)'}")
@@ -549,15 +531,6 @@ class DocRetire:
             prompt_str = f"{message}: "
         value = input(prompt_str).strip()
         return value or default
-
-
-def _validate_document_id(doc_id: str) -> None:
-    """Validate that a documentId is a 4-digit number."""
-    doc_id = str(doc_id)
-    if not doc_id.isdigit():
-        raise ValueError(f"DocumentId must be numeric: {doc_id}")
-    if len(doc_id) != 4:
-        raise ValueError(f"DocumentId must be 4 digits, got {len(doc_id)}: {doc_id}")
 
 
 class DocImport:
@@ -596,12 +569,8 @@ class DocImport:
             log.error(f"Source file must be a markdown file (.md): {source_path}")
             return 1
 
-        try:
-            meta, body = _parse_frontmatter(source_path)
-        except ValueError:
-            text = source_path.read_text(encoding="utf-8")
-            meta = {}
-            body = text
+        # Read the source markdown body (no frontmatter)
+        body = source_path.read_text(encoding="utf-8") if source_path.exists() else ""
 
         if not body.strip():
             log.error(f"Source file has no body content: {source_path}")
@@ -609,13 +578,10 @@ class DocImport:
 
         # Determine category
         if not self.category:
-            frontmatter_cat = meta.get("category", "")
-            if frontmatter_cat in VALID_CATEGORIES:
-                self.category = frontmatter_cat
-            elif self.interactive:
+            if self.interactive:
                 self.category = self._prompt("Category (strict or draft)", default="draft")
             else:
-                log.error("No category and none in frontmatter. Use --category or add 'category:' to frontmatter.")
+                log.error("No category provided. Use --category or add 'category:' to source .meta.json.")
                 return 1
 
         if self.category not in VALID_CATEGORIES:
@@ -623,57 +589,36 @@ class DocImport:
             return 1
 
         # Handle documentId
-        document_id = meta.get("documentId", "")
+        document_id = self.document_id or ""
 
         if self.category == "strict":
             # Strict documents require a 4-digit documentId
-            if self.document_id:
-                document_id = self.document_id
-            elif not document_id and self.interactive:
+            if not document_id and self.interactive:
                 document_id = self._prompt("Document number (e.g. 1001)")
             elif not document_id:
-                log.error(
-                    "Strict documents require a documentId. Provide --document-id, or set documentId in frontmatter."
-                )
+                log.error("Strict documents require a documentId. Provide --document-id.")
                 return 1
             _validate_document_id(document_id)
             document_id = str(document_id)
-            meta["documentId"] = document_id
         else:
             # Draft: auto-assign if missing
             if not document_id:
                 skip_ids = set()
                 for cat in VALID_CATEGORIES:
                     skip_ids.update(_collect_existing_ids(repo_dir, cat))
-                meta["documentId"] = _next_id(repo_dir, skip_ids, save=not self.dry_run)
-                document_id = meta["documentId"]
+                document_id = _next_id(repo_dir, skip_ids, save=not self.dry_run)
                 log.info(f"Auto-assigned documentId: {document_id}")
-            else:
-                meta["documentId"] = document_id
 
         # Enrich with git history for source file
         git_history = _get_file_history(repo_dir, source_path)
-        if git_history:
-            meta["updatedBy"] = git_history[0]
-            meta["lastUpdated"] = git_history[1]
-        else:
-            if not meta.get("updatedBy"):
-                meta["updatedBy"], _ = _git_info()
-            if not meta.get("lastUpdated"):
-                meta["lastUpdated"] = datetime.now(UTC).strftime("%Y-%m-%d")
-
-        # Populate remaining fields
-        if not meta.get("version"):
-            meta["version"] = "0"
-        if not meta.get("title"):
-            meta["title"] = source_path.stem.replace("-", " ").title()
-        if not meta.get("category"):
-            meta["category"] = self.category
+        author = git_history[0] if git_history else None
+        date = git_history[1] if git_history else None
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
 
         # Determine target path
         target_dir = repo_dir / CAT_DIR_MAP.get(self.category, f"docs/{self.category}")
         if self.category == "draft":
-            title = meta.get("title", source_path.stem)
+            title = source_path.stem.replace("-", " ").title()
             slug = _slugify(title)
             filename = slug + ".md"
         else:
@@ -693,16 +638,16 @@ class DocImport:
         # Dry-run: just report
         if self.dry_run:
             log.info(f"[DRY RUN] Would create: {target_path}")
-            log.info(f"  title: {meta.get('title')}")
             log.info(f"  category: {self.category}")
             log.info(f"  documentId: {document_id}")
             if source_path.exists():
                 log.info(f"  source: {source_path}")
             source_meta_path = source_path.with_suffix(".meta.json")
             if not self.skip_history and source_meta_path.exists():
-                source_meta_data = yaml.safe_load(
-                    source_meta_path.read_text(encoding="utf-8")
-                ) or {}
+                try:
+                    source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
+                except (json.JSONDecodeError, FileNotFoundError):
+                    source_meta_data = {}
                 history = source_meta_data.get("version_history") or []
                 merged = _merge_version_history(target_path, history, skip_existing=self.skip_existing)
                 log.info(f"  version_history: {len(history)} entries")
@@ -715,30 +660,64 @@ class DocImport:
                 log.info("  version_history: no source .meta.json found")
             return 0
 
-        # Create target directory and write
+        # Create target directory and write plain markdown
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_frontmatter(target_path, meta, body)
 
-        # Create companion .meta.json with merged version_history
+        # Title for the markdown body
+        title = source_path.stem.replace("-", " ").title()
+
+        # Build .meta.json with all top-level fields
+        meta_json = {
+            "title": title,
+            "description": "",
+            "category": self.category,
+            "documentId": document_id,
+            "status": "active",
+            "version": "0",
+            "lastUpdated": date or today,
+            "updatedBy": author or _git_info()[0],
+            "reviewer": [],
+            "commitHash": "",
+            "prNumber": "",
+            "version_history": [],
+        }
+
+        # Merge version_history from source .meta.json
         source_meta_path = source_path.with_suffix(".meta.json")
         if not self.skip_history and source_meta_path.exists():
-            source_meta_data = yaml.safe_load(
-                source_meta_path.read_text(encoding="utf-8")
-            ) or {}
-            history = source_meta_data.get("version_history") or []
-            merged = _merge_version_history(target_path, history, skip_existing=self.skip_existing)
-            _save_meta(target_path, {"version_history": merged})
-            imported = len([e for e in merged if e.get("action") == "imported"])
-            log.info(f"  version_history: {imported} entries imported")
+            try:
+                source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
+                history = source_meta_data.get("version_history") or []
+
+                # Preserve title/description from source if available
+                if source_meta_data.get("title"):
+                    meta_json["title"] = source_meta_data["title"]
+                if source_meta_data.get("description"):
+                    meta_json["description"] = source_meta_data["description"]
+
+                meta_json["version_history"] = _merge_version_history(
+                    target_path, history, skip_existing=self.skip_existing
+                )
+                imported = len([e for e in meta_json["version_history"] if e.get("action") == "imported"])
+                log.info(f"  version_history: {imported} entries imported")
+            except (json.JSONDecodeError, FileNotFoundError):
+                meta_json["version_history"] = []
+                log.info("  version_history: no valid source .meta.json found")
         else:
-            _save_meta(target_path, {"version_history": []})
+            meta_json["version_history"] = []
             if self.skip_history:
                 log.info("  version_history: skipped (--skip-history)")
             else:
                 log.info("  version_history: no source .meta.json found")
 
+        # Write plain markdown file (no frontmatter)
+        _write_md_file(target_path, meta_json["title"], meta_json.get("description", ""), body)
+
+        # Save .meta.json
+        _save_meta(target_path, meta_json)
+
         log.info(f"Imported: {source_path} -> {target_path}")
-        log.info(f"  title: {meta.get('title')}")
+        log.info(f"  title: {meta_json.get('title')}")
         log.info(f"  category: {self.category}")
         log.info(f"  documentId: {document_id}")
 

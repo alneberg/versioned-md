@@ -15,12 +15,15 @@ This directory contains the documentation for our project. Documents are organiz
 1. Choose the appropriate category based on your document's purpose
 2. Copy `template/example.md` as a starting point
 3. Place the file in the correct subdirectory
-4. Update frontmatter fields:
-   - `title`: Display title
-   - `description`: Short description for navigation
-   - `category`: Must match the parent directory
-   - `documentId`: 4-digit numeric for strict/draft (auto-assigned), descriptive for reference
-5. For `strict` docs only: rename the file to match its `documentId` (e.g. `1001.md`)
+4. Run `versioned-md doc create` to generate the companion `.meta.json` file
+
+For `strict` documents:
+- Provide a 4-digit documentId (e.g., `1001`)
+- The filename must match the documentId (e.g., `1001.md`)
+
+For `draft` documents:
+- DocumentId is auto-assigned by the system
+- Descriptive filenames are allowed
 
 ## Promotion to Strict
 
@@ -28,23 +31,23 @@ To promote a draft to a strict document:
 
 1. Move the file from `docs/drafts/` to `docs/strict/`
 2. Rename the file to just its 4-digit `documentId` (e.g. `1001.md`)
-3. Add any missing required frontmatter fields (`category: strict`, `description`, etc.)
+3. Run `versioned-md doc promote` to update metadata
 4. Open a PR for review
 
 The CI will automatically validate metadata and update `.meta.json`.
 
 ## Metadata
 
-Each document has an accompanying `.meta.json` companion file that stores version history. This is created automatically by the CI system.
+All document metadata is stored in companion `.meta.json` files alongside each Markdown file. The Markdown body contains no frontmatter — `.meta.json` is the single source of truth.
 
-When a PR is merged, the following fields are automatically updated in the **changed files only**:
-- `prNumber` — the PR that was merged (stored in frontmatter)
-- `version` — incremented from the last entry in `.meta.json`
-- `lastUpdated` / `updatedBy` — date and author of the merge commit
-- `reviewer` — approved reviewers fetched from the PR
-- `commitHash` — short SHA of the merge commit
+The `.meta.json` file contains:
+- `version_history` — log of all document changes (version, author, date, reviewers)
+- Top-level fields like `title`, `description`, `category`, `documentId`, `status`, `version`, `lastUpdated`, `updatedBy`, `reviewer`, etc.
 
-Each entry in `.meta.json`'s `version_history` also records the `pr_number` (null for direct commits) for audit trail purposes.
+When a PR is merged, the `update-metadata.yml` workflow runs automatically to:
+- Update `version`, `lastUpdated`, `updatedBy` in `.meta.json`
+- Add entries to `version_history`
+- Store `commitHash`, `prNumber`, and `reviewer`
 
 The CI blocks squash and rebase merges — only "Create a merge commit" is allowed, ensuring every merge has a corresponding PR number and merge commit SHA.
 

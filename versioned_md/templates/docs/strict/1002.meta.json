@@ -1,11 +1,23 @@
 {
+  "title": "Sequencing Pipelines",
+  "description": "Overview of the standard sequencing pipelines and their typical use cases.",
+  "category": "strict",
+  "documentId": "1002",
+  "status": "active",
+  "version": "1",
+  "lastUpdated": "2026-06-25",
+  "updatedBy": "johannes",
+  "reviewer": ["sarah", "mike"],
+  "commitHash": "",
+  "prNumber": "",
   "version_history": [
     {
       "version": "1",
       "last_updated": "2026-06-25",
       "updated_by": "johannes",
       "reviewer": ["sarah", "mike"],
-      "commit_hash": ""
+      "commit_hash": "",
+      "action": "created"
     }
   ]
 }
