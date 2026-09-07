@@ -38,7 +38,7 @@ The CLI has subcommands:
 - **people** Add, deactivate or import team members
 - **meta** Validate a meta.json file
 
-Please see the [Standard Operating Procedures](## Standard Operating Procedures) for instructions for specific use cases.
+Please see the [Standard Operating Procedures](#standard-operating-procedures) for instructions for specific use cases.
 
 ## How it works
 
