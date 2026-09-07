@@ -2,20 +2,31 @@
 
 **Automated metadata management for markdown documentation repositories.**
 
-versioned-md is a CLI tool that bootstraps fully managed documentation repositories with automated metadata handling, version tracking, and review governance.
+versioned-md is a CLI tool that bootstraps documentation repositories with automated metadata handling, version tracking, and review governance.
 
 ## Purpose
 
-versioned-md enforces versioning on individual markdown documents. The version is a human readable integer but is also tightly coupled to the git commit hash. Additionally the change process for documents is completely piggy-backing on the review process for a pull request in github.
+versioned-md enforces versioning on individual markdown documents. The version is a human readable integer but is also tightly coupled to the git commit hash. Additionally the change process for documents is completely piggy-backing on the review process for a pull request in GitHub.
 
-In short, versioned-md enables a few things in addition to simple markdown documents:
+In short, versioned-md enables a few things in addition to plain markdown documents:
 
 - **Versioning of individual documents**: Each document has its own version id, tightly linked to a commit hash.
 - **Reviewer tracking**: Know who approved each document
 - **Automated governance**: Enforce metadata consistency without manual effort
 - **Stable identifiers**: Unique IDs that survive renames and refactoring
 
-The backbone of versioned-md is Github Actions workflows and Python tooling to handle all of that automatically.
+The backbone of versioned-md is GitHub Actions workflows and Python tooling to handle all of that automatically.
+
+## Simple Workflow, Powerful Results
+
+Once everything is up and running, for the most common case — updating one or more documents — the workflow is as simple as:
+
+1. **Edit** one or more markdown files in `docs/`
+2. **Open a PR**
+3. **Get it reviewed** using standard GitHub PR reviews
+4. **Merge** — Once merged, CI automatically bumps the version, records who changed what, tracks reviewers, and links to the PR
+
+That's it. No special commands, no manual metadata edits, no separate versioning system to learn.
 
 ## How It Works
 
@@ -61,6 +72,8 @@ This bootstraps a new repo with:
 - A `TEMPLATE` branch containing CI workflows, scripts, and Python utilities
 - A `main` branch ready for documentation
 
+From inside your new `my-docs/` directory:
+
 ```bash
 # Create your first document as a draft
 uv run versioned-md doc create \
@@ -72,7 +85,7 @@ uv run versioned-md doc create \
 uv run versioned-md people add --name "John Smith" --handle "john" --initials "JS"
 
 # Promote a draft to strict
-uv run versioned-md doc promote docs/drafts/1001-hello-world.md --category strict
+uv run versioned-md doc promote docs/drafts/hello-world.md --category strict
 
 # Push to GitHub
 git remote add origin git@github.com:your-org/my-docs.git
@@ -83,20 +96,46 @@ The `TEMPLATE` branch is synced automatically with `versioned-md sync` when CI w
 
 ## CLI Reference
 
+### People
+
 ```bash
 # Add a person to your repo
 versioned-md people add --name "Name" --handle "handle" --initials "XX"
 
-# Import people from GitHub + git log
-versioned-md people import [--dry-run] [--token TOKEN]
+# Import people from GitHub contributors + git log
+versioned-md people import --dry-run --token "$GITHUB_TOKEN"
+```
 
-# Manage documents
-versioned-md doc create [options]     # Create a new document
-versioned-md doc promote [options]    # Promote draft → strict
-versioned-md doc retire [options]     # Retire a document
-versioned-md doc import [options]     # Import an existing markdown file
+### Documents
 
-# Synchronize the TEMPLATE branch with the latest CI workflows
+```bash
+# Create a new document (requires --category, drafts need a title)
+versioned-md doc create --title "Doc Title" --category draft --description "Description"
+
+# Promote a draft to strict
+versioned-md doc promote --path docs/drafts/my-doc.md --category strict
+
+# Retire a document
+versioned-md doc retire --path docs/strict/1001.md --reason "Replaced by 1020"
+
+# Import an existing Markdown file
+versioned-md doc import --source existing-file.md --category draft
+```
+
+### Metadata
+
+```bash
+# Validate all documents
+versioned-md meta validate
+
+# Validate a specific file
+versioned-md meta validate --path docs/strict/1001.md
+```
+
+### Template sync
+
+```bash
+# Sync the TEMPLATE branch with the latest CI workflows
 versioned-md sync
 ```
 
@@ -109,7 +148,7 @@ The typical workflow for managing documents:
 versioned-md doc create --title "My Feature" --category draft
 
 # 2. Promote to strict
-versioned-md doc promote docs/drafts/abc-my-feature.md --category strict
+versioned-md doc promote docs/drafts/my-feature.md --category strict
 
 # 3. Retire a document (moves to docs/retired/)
 versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
@@ -122,7 +161,7 @@ versioned-md doc retire docs/strict/1001-old-doc.md --reason "Replaced by 1020"
 | `doc create` | Create a new document | Prompts for category; drafts get auto-assigned docId, strict asks for a number |
 | `doc promote` | Move draft → strict | Renames file, updates category, validates documentId uniqueness |
 | `doc retire` | Retire a document | Moves to `docs/retired/`, sets `status: retired` in `.meta.json` |
-| `doc import` | Import existing Markdown file | Extracts frontmatter, enriches with git history, auto-imports `version_history` from source `.meta.json`, supports `--dry-run` |
+| `doc import` | Import existing Markdown file | Reads the markdown body, enriches with git history, auto-imports `version_history` from source `.meta.json`, supports `--dry-run` |
 
 ### Meta File Management
 
@@ -131,7 +170,8 @@ Each document has a companion `.meta.json` file that tracks `version_history` �
 ```bash
 # Validate .meta.json files against the schema
 versioned-md meta validate               # check all docs in the repo
-versioned-md meta validate -p docs/strict/1001.md.meta.json  # specific file
+versioned-md meta validate -p docs/strict/1001.meta.json  # specific file
+versioned-md meta validate -p docs/strict/1001.md          # companion file (auto-discovers .meta.json)
 ```
 
 The `version_history` array in each `.meta.json` is validated by CI:
@@ -160,7 +200,12 @@ The `version_history` array in each `.meta.json` is validated by CI:
 
 ### People Management
 
-The `people.json` file tracks team members who author and review documentation.
+The `people.json` file is a registry of everyone who is allowed to author or review documentation in the repository. Before a PR can be merged, CI checks that:
+
+- The PR author is listed in `people.json` (to ensure only known individuals contribute)
+- Every reviewer who approved the PR is listed in `people.json` (to gate approvals)
+
+When CI detects an unknown author or reviewer, it blocks the PR. Adding people to the registry is therefore a prerequisite to any document workflow.
 
 ```bash
 # Non-interactive: supply all fields via flags
@@ -190,14 +235,14 @@ All document metadata is stored in a companion `.meta.json` file alongside each 
 ```json
 {
   "title": "System Architecture",
-  "description": "High-level NGI architecture overview",
+  "description": "A document describing the system architecture",
   "category": "strict",
   "documentId": "1001",
-  "responsible": "johannes",
+  "responsible": "jane",
   "status": "active",
   "version": "1",
   "lastUpdated": "2026-06-25",
-  "updatedBy": "johannes",
+  "updatedBy": "jane",
   "reviewer": ["sarah", "mike"],
   "commitHash": "a1b2c3d",
   "prNumber": "42",
