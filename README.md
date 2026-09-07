@@ -28,7 +28,19 @@ Once everything is up and running, for the most common case — updating one or 
 
 That's it. No special commands, no manual metadata edits, no separate versioning system to learn.
 
-## How It Works
+## A CLI to manage the metadata
+
+For other use-cases - adding new documents, importing history, register a new person, publish a draft document or setting up a new repository - the CLI tool is a useful tool.
+The CLI has subcommands:
+- **doc** Create, promote (draft -> strict), retire or import (from a different git repository) documents
+- **create** Setting up a documentation repository from scratch
+- **sync** Get the latest changes in upstream CI scripts
+- **people** Add, deactivate or import team members
+- **meta** Validate a meta.json file
+
+Please see the [Standard Operating Procedures](## Standard Operating Procedures) for instructions for specific use cases.
+
+## How it works
 
 1. **Authors write Markdown docs** in `docs/{strict,drafts,reference}/` — metadata lives in companion `.meta.json` files
 2. **Open a PR** — the `check-header.yml` workflow validates that protected metadata isn't tampered with
