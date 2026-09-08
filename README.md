@@ -88,6 +88,12 @@ uv run versioned-md create \
   --description "Team documentation repository" \
   --author "Acme Corp"
 
+# Author is used in the LICENSE file; org defaults to author if not specified
+uv run versioned-md create \
+  --name my-docs \
+  --author "Jane Doe" \
+  --org "Acme Corp"
+
 # Interactive: run without flags
 uv run versioned-md create
 ```

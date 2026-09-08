@@ -177,7 +177,7 @@ class CreateApplication:
         if is_interactive:
             ctx["name"] = self.name or self._prompt("Repository name")
             ctx["description"] = self.description or self._prompt("Description", "Documentation repository")
-            ctx["author"] = self.author or self._prompt("Author or organisation name")
+            ctx["author"] = self.author or self._prompt("Author or organisation name (used in LICENSE)")
             ctx["org"] = self.org or ctx["author"]
 
         context = self._load_config(ctx)
