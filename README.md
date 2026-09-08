@@ -76,14 +76,20 @@ uv sync
 ```
 
 And the installation is done.
-To bootstrap a brand new documentation repository and setup the basic metadata (members in the team):
-```bash
-# Create a new documentation repository
-mkdir my-docs && cd my-docs
-uv run versioned-md create
 
-# Add an initial person (required for people.json)
-uv run versioned-md people add --name "Jane Doe" --handle "jane" --initials "JD"
+### Bootstrapping a new repository
+
+Run `versioned-md create` without arguments for an interactive prompt, or supply flags for non-interactive use:
+
+```bash
+# Non-interactive: supply flags directly
+uv run versioned-md create \
+  --name my-docs \
+  --description "Team documentation repository" \
+  --author "Acme Corp"
+
+# Interactive: run without flags
+uv run versioned-md create
 ```
 
 This bootstraps a new repo with:
@@ -91,7 +97,7 @@ This bootstraps a new repo with:
 - A `TEMPLATE` branch containing CI workflows, scripts, and Python utilities
 - A `main` branch ready for documentation
 
-From inside your new `my-docs/` directory:
+From inside your new repository:
 
 ```bash
 # Create your first document as a draft
