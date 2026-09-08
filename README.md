@@ -65,17 +65,13 @@ Documents can be promoted from `drafts` → `strict` via a dedicated PR. The CI 
 
 ## Installation
 
-Here are installation instructions using [the uv package manager](https://docs.astral.sh/uv/).
-Installation using pip or similar is also possible.
+Install the tool globally using [the uv package manager](https://docs.astral.sh/uv/):
 
 ```bash
-# Clone and install locally
-git clone https://github.com/your-org/versioned-md.git
-cd versioned-md
-uv sync
+uv tool install git+https://github.com/your-org/versioned-md.git
 ```
 
-And the installation is done.
+This makes `versioned-md` available globally — you can run it from any directory to create and manage documentation repositories.
 
 ### Bootstrapping a new repository
 
