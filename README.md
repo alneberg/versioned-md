@@ -63,14 +63,21 @@ Please see the [Standard Operating Procedures](#standard-operating-procedures) f
 
 Documents can be promoted from `drafts` → `strict` via a dedicated PR. The CI handles the rest.
 
-## Quick Start
+## Installation
+
+Here are installation instructions using [the uv package manager](https://docs.astral.sh/uv/).
+Installation using pip or similar is also possible.
 
 ```bash
 # Clone and install locally
 git clone https://github.com/your-org/versioned-md.git
 cd versioned-md
 uv sync
+```
 
+And the installation is done.
+To bootstrap a brand new documentation repository and setup the basic metadata (members in the team):
+```bash
 # Create a new documentation repository
 mkdir my-docs && cd my-docs
 uv run versioned-md create
