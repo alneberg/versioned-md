@@ -79,19 +79,19 @@ Run `versioned-md create` without arguments for an interactive prompt, or supply
 
 ```bash
 # Non-interactive: supply flags directly
-uv run versioned-md create \
+versioned-md create \
   --name my-docs \
   --description "Team documentation repository" \
   --author "Acme Corp"
 
 # Author is used in the LICENSE file; org defaults to author if not specified
-uv run versioned-md create \
+versioned-md create \
   --name my-docs \
   --author "Jane Doe" \
   --org "Acme Corp"
 
 # Interactive: run without flags
-uv run versioned-md create
+versioned-md create
 ```
 
 This bootstraps a new repo with:
@@ -103,16 +103,16 @@ From inside your new repository:
 
 ```bash
 # Create your first document as a draft
-uv run versioned-md doc create \
+versioned-md doc create \
   --title "Hello World" \
   --category draft \
   --description "The first document"
 
 # Add more people to your team
-uv run versioned-md people add --name "John Smith" --handle "john" --initials "JS"
+versioned-md people add --name "John Smith" --handle "john" --initials "JS"
 
 # Promote a draft to strict
-uv run versioned-md doc promote docs/drafts/hello-world.md --category strict
+versioned-md doc promote docs/drafts/hello-world.md --category strict
 
 # Push to GitHub
 git remote add origin git@github.com:your-org/my-docs.git

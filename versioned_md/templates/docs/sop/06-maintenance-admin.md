@@ -21,7 +21,7 @@ Standard operations for keeping the documentation infrastructure up to date, val
 cd my-team-docs
 
 # Run sync — creates a PR from TEMPLATE -> main
-uv run versioned-md sync
+versioned-md sync
 ```
 
 This command:
@@ -68,19 +68,19 @@ gh pr merge 5 --repo your-org/my-docs
 **Create the PR without pushing:**
 
 ```bash
-uv run versioned-md sync --push false --pr true
+versioned-md sync --push false --pr true
 ```
 
 **Create a PR even if no changes detected** (useful when CI has been modified locally and you want to force the process):
 
 ```bash
-uv run versioned-md sync --force-pr --push true --pr true
+versioned-md sync --force-pr --push true --pr true
 ```
 
 **Just update the local TEMPLATE branch without creating a PR:**
 
 ```bash
-uv run versioned-md sync --push true --pr false
+versioned-md sync --push true --pr false
 ```
 
 ### Expected outcome
@@ -105,7 +105,7 @@ uv run versioned-md sync --push true --pr false
 
 ```bash
 # Check every .md file in the repo
-uv run versioned-md meta validate --dir .
+versioned-md meta validate --dir .
 ```
 
 This recursively scans the repository and validates every document's companion `.meta.json` file.
@@ -114,10 +114,10 @@ This recursively scans the repository and validates every document's companion `
 
 ```bash
 # Check a single document
-uv run versioned-md meta validate --path docs/strict/1001.meta.json
+versioned-md meta validate --path docs/strict/1001.meta.json
 
 # Or pass the .md file — it uses the companion .meta.json automatically
-uv run versioned-md meta validate --path docs/strict/1001.md
+versioned-md meta validate --path docs/strict/1001.md
 ```
 
 ### Step 3: Interpret the Output
@@ -188,7 +188,7 @@ Fix the issues:
 Then re-validate:
 
 ```bash
-uv run versioned-md meta validate --path docs/strict/1003.md
+versioned-md meta validate --path docs/strict/1003.md
 ```
 
 ### Steps: Validate as a Pre-Commit Step (optional)
@@ -198,7 +198,7 @@ You can add validation to your local Makefile or pre-commit hook:
 ```bash
 # Makefile example
 meta-check:
-	uv run versioned-md meta validate --dir .
+	versioned-md meta validate --dir .
 ```
 
 ### Expected outcome
@@ -226,7 +226,7 @@ If documents already exist in another versioned-md repository with `.meta.json` 
 cd new-docs-repo
 
 # Dry run to see what would happen
-uv run versioned-md doc import \
+versioned-md doc import \
   --source /path/to/old-repo/docs/strict/1020-guide.md \
   --category strict \
   --document-id 1020 \
@@ -236,13 +236,13 @@ uv run versioned-md doc import \
 Then perform the import:
 
 ```bash
-uv run versioned-md doc import \
+versioned-md doc import \
   --source /path/to/old-repo/docs/strict/1020-guide.md \
   --category strict \
   --document-id 1020
 
 # Import with version_history preserved
-uv run versioned-md doc import \
+versioned-md doc import \
   --source /path/to/old-repo/docs/strict/1020-guide.md \
   --category strict \
   --document-id 1020
@@ -251,7 +251,7 @@ uv run versioned-md doc import \
 # Import a batch of documents
 for file in /path/to/old-repo/docs/strict/*.md; do
   doc_id=$(basename "$file" .md)
-  uv run versioned-md doc import \
+  versioned-md doc import \
     --source "$file" \
     --category strict \
     --document-id "$doc_id"
@@ -264,7 +264,7 @@ If documents have frontmatter (YAML at the top of the file) or no metadata at al
 
 ```bash
 # Import a document that has no .meta.json anywhere
-uv run versioned-md doc import \
+versioned-md doc import \
   --source docs/wiki-page.md \
   --category draft
 
@@ -283,7 +283,7 @@ If your source repo uses an older version of versioned-md, run `sync` after migr
 
 ```bash
 # Update CI to the latest version
-uv run versioned-md sync
+versioned-md sync
 ```
 
 ### Expected outcome

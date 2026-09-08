@@ -21,7 +21,7 @@ Standard operations for bootstrapping and configuring a new documentation reposi
 cd ~/projects
 
 # Create a new documentation repository
-uv run versioned-md create \
+versioned-md create \
   --name "my-team-docs" \
   --description "Our team's documentation" \
   --author "MyTeam"
@@ -47,7 +47,7 @@ my-team-docs/
 Run without flags for an interactive prompt:
 
 ```bash
-uv run versioned-md create
+versioned-md create
 ```
 
 You'll be asked for:
@@ -88,19 +88,19 @@ You'll be asked for:
 cd my-team-docs
 
 # 2. Add at least one person to people.json (required before creating documents)
-uv run versioned-md people add \
+versioned-md people add \
   --name "Jane Doe" \
   --handle "jane" \
   --initials "JD"
 
 # 3. Optionally add more team members
-uv run versioned-md people add \
+versioned-md people add \
   --name "John Smith" \
   --handle "john" \
   --initials "JS"
 
 # 4. Create your first draft document
-uv run versioned-md doc create \
+versioned-md doc create \
   --title "Onboarding Guide" \
   --category draft \
   --description "A guide for new team members"

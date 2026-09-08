@@ -20,7 +20,7 @@ Standard operations for creating new documents in each category.
 cd my-team-docs
 
 # Create a draft document (non-interactive)
-uv run versioned-md doc create \
+versioned-md doc create \
   --title "New Feature Guide" \
   --category draft \
   --description "How to use the new search feature"
@@ -36,7 +36,7 @@ This creates:
 Run without flags:
 
 ```bash
-uv run versioned-md doc create
+versioned-md doc create
 ```
 
 You'll be prompted for:
@@ -91,7 +91,7 @@ The `version` is `"0"` because the document hasn't been merged yet. It will beco
 
 ```bash
 # Create a strict document, specifying a 4-digit documentId
-uv run versioned-md doc create \
+versioned-md doc create \
   --title "System Architecture" \
   --category strict \
   --description "High-level architecture overview for new team members"
@@ -138,7 +138,7 @@ Error: DocumentId '1001' already exists at docs/strict/1001.md.
 You need to choose a different number. Check existing documentIds:
 
 ```bash
-uv run versioned-md doc --info --dir .
+versioned-md doc --info --dir .
 ```
 
 ### Notes

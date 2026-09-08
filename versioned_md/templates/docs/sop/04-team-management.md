@@ -17,7 +17,7 @@ Standard operations for managing the people who author and review documentation.
 
 ```bash
 # Add a person via command-line flags
-uv run versioned-md people add \
+versioned-md people add \
   --name "Jane Doe" \
   --handle "jane" \
   --initials "JD"
@@ -39,7 +39,7 @@ This adds an entry to `people.json`:
 ### Steps: Interactive
 
 ```bash
-uv run versioned-md people add
+versioned-md people add
 ```
 
 You'll be prompted for:
@@ -55,7 +55,7 @@ Initials (e.g. JD): JD
 A person may be known by multiple GitHub handles or names. Add them with `--alias`:
 
 ```bash
-uv run versioned-md people add \
+versioned-md people add \
   --name "Jane Doe" \
   --handle "jane" \
   --initials "JD" \
@@ -109,7 +109,7 @@ Two people cannot share the same GitHub handle. Update the existing person's ent
 ### Step 1: Dry Run — Preview Who Will Be Discovered
 
 ```bash
-uv run versioned-md people import \
+versioned-md people import \
   --dry-run \
   --token "$GITHUB_TOKEN" \
   --pr-limit 50
@@ -137,7 +137,7 @@ Importing people...
 ### Step 2: Run the Import
 
 ```bash
-uv run versioned-md people import \
+versioned-md people import \
   --token "$GITHUB_TOKEN" \
   --pr-limit 50
 ```
@@ -161,7 +161,7 @@ Check for:
 If you only want to import from GitHub (not local git log):
 
 ```bash
-uv run versioned-md people import \
+versioned-md people import \
   --token "$GITHUB_TOKEN" \
   --no-git
 ```
@@ -171,7 +171,7 @@ uv run versioned-md people import \
 If you want to ONLY add new people and leave existing entries untouched:
 
 ```bash
-uv run versioned-md people import \
+versioned-md people import \
   --token "$GITHUB_TOKEN" \
   --skip-existing
 ```
@@ -179,7 +179,7 @@ uv run versioned-md people import \
 ### Optional: Output to a Different Directory
 
 ```bash
-uv run versioned-md people import \
+versioned-md people import \
   --output-dir /tmp/ \
   --dry-run
 ```
@@ -256,7 +256,7 @@ Your repo doesn't have a GitHub remote. The import will still work — it scans 
 
 ```bash
 # Deactivate a team member
-uv run versioned-md people deactivate \
+versioned-md people deactivate \
   --handle "jane"
 ```
 

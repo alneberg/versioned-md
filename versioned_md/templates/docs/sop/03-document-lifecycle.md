@@ -21,7 +21,7 @@ Standard operations for moving documents through their lifecycle: promotion, ret
 cd my-team-docs
 
 # Promote the document to strict
-uv run versioned-md doc promote \
+versioned-md doc promote \
   --path docs/drafts/new-feature-guide.md \
   --category strict
 ```
@@ -111,7 +111,7 @@ The documentId is taken. The CLI will try to auto-assign the next available numb
 
 ```bash
 # Retire a strict document with a reason
-uv run versioned-md doc retire \
+versioned-md doc retire \
   --path docs/strict/0999-legacy-system.md \
   --reason "Replaced by 1050-system-v2"
 ```
@@ -126,7 +126,7 @@ This will:
 Run without flags to be prompted for the path and retirement reason:
 
 ```bash
-uv run versioned-md doc retire
+versioned-md doc retire
 ```
 
 ```
@@ -196,7 +196,7 @@ A file with that name already exists in `docs/retired/`. Check for duplicate ret
 
 ```bash
 # Always preview first
-uv run versioned-md doc import \
+versioned-md doc import \
   --source ../old-wiki/pipeline-document.md \
   --category draft \
   --dry-run
@@ -214,7 +214,7 @@ The output shows:
 ### Step 2: Import Without Version History (New Document)
 
 ```bash
-uv run versioned-md doc import \
+versioned-md doc import \
   --source ../old-wiki/pipeline-document.md \
   --category draft
 ```
@@ -227,7 +227,7 @@ uv run versioned-md doc import \
 
 ```bash
 # The source has a companion .meta.json with history
-uv run versioned-md doc import \
+versioned-md doc import \
   --source ../other-repo/docs/strict/1020-api-guide.md \
   --category draft
 ```
@@ -246,7 +246,7 @@ Expected log output:
 ### Step 4: Skip Version History Import
 
 ```bash
-uv run versioned-md doc import \
+versioned-md doc import \
   --source ../wiki/guide.md \
   --category draft \
   --skip-history
@@ -258,19 +258,19 @@ Use this when the source `.meta.json` exists but you don't want to import its ve
 
 ```bash
 # Overwrite if target exists
-uv run versioned-md doc import \
+versioned-md doc import \
   --source another-source.md \
   --category draft \
   --force
 
 # Skip silently if target exists
-uv run versioned-md doc import \
+versioned-md doc import \
   --source another-source.md \
   --category draft \
   --skip-existing
 
 # Quietly exit without writing
-uv run versioned-md doc import \
+versioned-md doc import \
   --source another-source.md \
   --category draft \
   --skip-existing \
@@ -280,7 +280,7 @@ uv run versioned-md doc import \
 ### Step 6: Import as Strict
 
 ```bash
-uv run versioned-md doc import \
+versioned-md doc import \
   --source ../migration/source.md \
   --category strict \
   --document-id 1030
