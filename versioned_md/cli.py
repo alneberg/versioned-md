@@ -89,10 +89,11 @@ def doc_retire(
 
 @doc_app.command("import")
 def doc_import(
-    source: str = typer.Option(..., "--source", "-s", help="Source markdown file to import."),
+    source: str = typer.Option(..., "--source", "-s", help="Source markdown file or directory to import."),
     category: str = typer.Option("", "--category", "-c", help="Target category (strict, draft, or reference)."),
-    document_id: str = typer.Option("", "--document-id", "-d", help="4-digit document ID for strict documents."),
+    document_id: str = typer.Option("", "--document-id", "-d", help="4-digit document ID for strict documents (ignored for directories)."),
     directory: str = typer.Option(".", "--dir", "-d", help="Repository directory (default: current)."),
+    subdirectory: str = typer.Option("", "--subdirectory", "--subdir", "-S", help="Subdirectory within category to place the imported content (e.g. 'analysis' for docs/reference/analysis)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview the import without writing files."),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing document at destination."),
     skip_existing: bool = typer.Option(False, "--skip-existing", "-k", help="Skip if destination already exists."),
@@ -122,6 +123,7 @@ def doc_import(
             source=source,
             category=category,
             document_id=document_id,
+            subdirectory=subdirectory,
             interactive=is_tty,
             dry_run=dry_run,
             force=force,

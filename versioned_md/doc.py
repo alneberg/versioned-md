@@ -687,13 +687,14 @@ class DocRetire:
 
 
 class DocImport:
-    """Import an existing markdown file into the versioned-md structure."""
+    """Import an existing markdown file or directory into the versioned-md structure."""
 
     def __init__(
         self,
         source: str = "",
         category: str = "",
         document_id: str = "",
+        subdirectory: str = "",
         interactive: bool = False,
         dry_run: bool = False,
         force: bool = False,
@@ -703,11 +704,221 @@ class DocImport:
         self.source = source
         self.category = category
         self.document_id = document_id
+        self.subdirectory = subdirectory
         self.interactive = interactive
         self.dry_run = dry_run
         self.force = force
         self.skip_existing = skip_existing
         self.skip_history = skip_history
+
+    def _import_directory(self, repo_dir: Path, source_dir: Path) -> int:
+        """Import an entire directory with its structure and assets."""
+        if not self.category:
+            if self.interactive:
+                self.category = self._prompt("Category (strict, draft, or reference)", default="reference")
+            else:
+                log.error("No category provided. Use --category.")
+                return 1
+
+        if self.category not in VALID_CATEGORIES:
+            log.error(f"Invalid category '{self.category}'. Must be 'strict', 'draft', or 'reference'.")
+            return 1
+
+        # Determine target directory
+        target_base = repo_dir / CAT_DIR_MAP.get(self.category, f"docs/{self.category}")
+        if self.subdirectory:
+            target_base = target_base / self.subdirectory
+
+        # Create target directory
+        if self.dry_run:
+            log.info(f"[DRY RUN] Would create directory: {target_base}")
+        else:
+            target_base.mkdir(parents=True, exist_ok=True)
+
+        # Find all markdown files in the source directory
+        md_files = []
+        for root, _, files in os.walk(source_dir):
+            for file in files:
+                if file.endswith(".md"):
+                    md_files.append(Path(root) / file)
+
+        if not md_files:
+            log.error(f"No markdown files found in {source_dir}")
+            return 1
+
+        # Process each markdown file
+        for source_file in md_files:
+            # Calculate relative path from source directory
+            rel_path = source_file.relative_to(source_dir)
+            target_file = target_base / rel_path
+
+            # Create target directory if it doesn't exist
+            if not self.dry_run:
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Check if target exists
+            if target_file.exists():
+                if self.skip_existing:
+                    log.info(f"Skipping existing file: {target_file}")
+                    continue
+                if not self.force:
+                    log.error(
+                        f"Target already exists: {target_file}. Use --force to overwrite or --dry-run to preview."
+                    )
+                    return 1
+                log.warning(f"Overwriting existing file: {target_file}")
+
+            # Read source content
+            try:
+                body = source_file.read_text(encoding="utf-8")
+            except Exception as e:
+                log.error(f"Error reading {source_file}: {e}")
+                return 1
+
+            # Get title from filename (remove .md extension and convert hyphens to spaces)
+            title = source_file.stem.replace("-", " ").title()
+
+            # Determine documentId (use directory/filename path for reference category)
+            if self.category == "reference":
+                # Convert path to a slug (replace / and - with -)
+                path_slug = str(rel_path.with_suffix(""))
+                path_slug = path_slug.replace("/", "-").replace("_", "-")
+                document_id = _slugify(path_slug)
+            else:
+                # For strict/draft, use the document_id parameter or auto-assign
+                document_id = self.document_id or ""
+                if not document_id:
+                    skip_ids = set()
+                    for cat in VALID_CATEGORIES:
+                        skip_ids.update(_collect_existing_ids(repo_dir, cat))
+                    document_id = _next_id(repo_dir, skip_ids, save=not self.dry_run)
+                    log.info(f"Auto-assigned documentId: {document_id}")
+
+            # Get author for the current file (who is importing)
+            import_author, _ = _git_info()  # We only need the author
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+
+            # Define source_meta_path early
+            source_meta_path = source_file.with_suffix(".meta.json")
+
+            # For the first version_history entry, use the original author if available
+            original_author = None
+            original_date = None
+            if not self.skip_history:
+                if source_meta_path.exists():
+                    # If importing from .meta.json, use its history
+                    try:
+                        source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
+                        history = source_meta_data.get("version_history") or []
+                        if history:
+                            first_entry = history[0]  # Oldest entry
+                            original_author = first_entry.get("updated_by")
+                            original_date = first_entry.get("last_updated")
+                    except (json.JSONDecodeError, FileNotFoundError):
+                        pass
+                else:
+                    # If importing from git history, use the oldest commit
+                    git_history = _get_git_history(source_file)
+                    if git_history:
+                        first_entry = git_history[0]  # Oldest entry
+                        original_author = first_entry.get("updated_by")
+                        original_date = first_entry.get("last_updated")
+
+            # Build .meta.json with all top-level fields
+            meta_json = {
+                "title": title,
+                "description": "",
+                "category": self.category,
+                "documentId": document_id,
+                "status": "active",
+                "version": "0",
+                "lastUpdated": today,  # Current date when imported
+                "updatedBy": import_author,  # Person importing the document (will be updated by CI)
+                "originalAuthor": original_author,  # Original author from source (preserved)
+                "originalDate": original_date,  # Original date from source (preserved)
+                "reviewer": [],
+                "commitHash": "",  # Will be filled by CI
+                "prNumber": "",  # Will be filled by CI
+                "version_history": [],
+            }
+
+            # If this is a new import, populate version_history with source history
+            if not self.skip_history:
+                if source_meta_path.exists():
+                    try:
+                        source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
+                        history = source_meta_data.get("version_history") or []
+
+                        # Preserve title/description from source if available
+                        if source_meta_data.get("title"):
+                            meta_json["title"] = source_meta_data["title"]
+                        if source_meta_data.get("description"):
+                            meta_json["description"] = source_meta_data["description"]
+
+                        meta_json["version_history"] = _merge_version_history(
+                            target_file, history, skip_existing=self.skip_existing
+                        )
+                        imported = len([e for e in meta_json["version_history"] if e.get("action") == "imported"])
+                        log.info(f"  version_history: {imported} entries imported from .meta.json")
+                    except (json.JSONDecodeError, FileNotFoundError):
+                        # If no source .meta.json, try git history
+                        git_history = _get_git_history(source_file)
+                        if git_history:
+                            meta_json["version_history"] = git_history
+                            log.info(f"  version_history: {len(git_history)} entries imported from git history")
+                        else:
+                            log.info("  version_history: no source .meta.json or git history found")
+                else:
+                    # No source .meta.json, try git history
+                    git_history = _get_git_history(source_file)
+                    if git_history:
+                        meta_json["version_history"] = git_history
+                        log.info(f"  version_history: {len(git_history)} entries imported from git history")
+                    else:
+                        log.info("  version_history: no source .meta.json or git history found")
+            else:
+                log.info("  version_history: skipped (--skip-history)")
+
+            # Write plain markdown file (no frontmatter)
+            if not self.dry_run:
+                _write_md_file(target_file, meta_json["title"], meta_json.get("description", ""), body)
+
+            # Save .meta.json
+            if not self.dry_run:
+                _save_meta(target_file, meta_json)
+
+            log.info(f"Imported: {source_file} -> {target_file}")
+            log.info(f"  title: {meta_json.get('title')}")
+            log.info(f"  category: {self.category}")
+            log.info(f"  documentId: {document_id}")
+
+        # Copy non-markdown files (images, etc.)
+        for root, _, files in os.walk(source_dir):
+            for file in files:
+                if not file.endswith(".md") and not file.endswith(".meta.json"):
+                    source_asset = Path(root) / file
+                    rel_asset_path = source_asset.relative_to(source_dir)
+                    target_asset = target_base / rel_asset_path
+
+                    if target_asset.exists() and not self.force:
+                        if self.skip_existing:
+                            log.info(f"Skipping existing asset: {target_asset}")
+                            continue
+                        log.error(f"Asset already exists: {target_asset}. Use --force to overwrite.")
+                        return 1
+
+                    if not self.dry_run:
+                        target_asset.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            import shutil
+
+                            shutil.copy2(source_asset, target_asset)
+                            log.info(f"Copied asset: {source_asset} -> {target_asset}")
+                        except Exception as e:
+                            log.error(f"Error copying {source_asset}: {e}")
+                            return 1
+
+        return 0
 
     def run(self, repo_dir: Path) -> int:
         source_path = Path(self.source)
@@ -715,9 +926,14 @@ class DocImport:
             source_path = repo_dir / source_path
 
         if not source_path.exists():
-            log.error(f"Source file not found: {source_path}")
+            log.error(f"Source not found: {source_path}")
             return 1
 
+        # Handle directory import
+        if source_path.is_dir():
+            return self._import_directory(repo_dir, source_path)
+
+        # Handle single file import
         if not self.source.endswith(".md"):
             log.error(f"Source file must be a markdown file (.md): {source_path}")
             return 1
