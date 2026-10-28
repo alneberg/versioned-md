@@ -80,6 +80,144 @@ def _get_file_history(repo_dir: Path, filepath: Path) -> tuple[str, str] | None:
     return None
 
 
+def _get_git_remote_url(repo_path: Path) -> str:
+    """Get the remote URL for a git repository."""
+    import subprocess
+
+    try:
+        # Try origin first
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "remote", "get-url", "origin"], capture_output=True, text=True, check=False
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+
+        # If origin doesn't exist, try any remote
+        result = subprocess.run(["git", "-C", str(repo_path), "remote"], capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            remotes = result.stdout.strip().splitlines()
+            if remotes:
+                result = subprocess.run(
+                    ["git", "-C", str(repo_path), "remote", "get-url", remotes[0]],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+
+    except (subprocess.SubprocessError, OSError) as e:
+        log.debug(f"Error getting remote URL for {repo_path}: {e}")
+
+    return ""
+
+
+def _get_git_history(file_path: Path, max_commits: int = 50) -> list[dict]:
+    """Extract git commit history from a file, even if it's in a different git repo.
+
+    Returns a list of version_history entries with:
+    - version: commit sequence number
+    - updated_by: author name
+    - last_updated: commit date (YYYY-MM-DD)
+    - commitHash: full commit hash
+    - sourceRepo: URL of the source repository and commit hash in format "url#hash"
+    - action: 'imported'
+    - message: commit message
+    """
+    import re
+    import subprocess
+
+    if not file_path.exists():
+        return []
+
+    # Find the git repo root for this file
+    dir_path = file_path.parent
+    git_root = None
+    while dir_path != dir_path.parent:
+        if (dir_path / ".git").exists():
+            git_root = dir_path
+            break
+        parent = dir_path.parent
+        if parent == dir_path:  # Reached root
+            break
+        dir_path = parent
+
+    if not git_root:
+        return []
+
+    # Get remote URL of the source repo
+    source_url = _get_git_remote_url(git_root)
+
+    # Get relative path from git root
+    rel_path = str(file_path.relative_to(git_root))
+
+    # Get commit history
+    cmd = [
+        "git",
+        "-C",
+        str(git_root),
+        "log",
+        "--follow",
+        f"--max-count={max_commits}",
+        "--pretty=format:%H|||%an|||%ad|||%s",
+        "--date=short",
+        "--",
+        rel_path,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            return []
+
+        history = []
+        lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
+
+        for i, line in enumerate(reversed(lines)):  # Reverse to get oldest first
+            if not line:
+                continue
+
+            parts = line.split("|||", 3)
+            if len(parts) < 3:
+                continue
+
+            commit_hash, author, date, commit_msg = parts[:4] if len(parts) >= 4 else (parts[0], parts[1], parts[2], "")
+            commit_hash = commit_hash.strip()
+
+            # Create sourceRepo field with URL#hash format
+            source_repo = ""
+            if source_url:
+                # Clean up common URL formats
+                if source_url.startswith("git@"):
+                    # Convert git@github.com:user/repo.git to https://github.com/user/repo
+                    import re
+
+                    match = re.match(r"git@([^:]+):(.+?)(?:\.git)?$", source_url)
+                    if match:
+                        domain, repo_path = match.groups()
+                        source_repo = f"https://{domain}/{repo_path}#{commit_hash}"
+                elif source_url.startswith("https://"):
+                    source_repo = f"{source_url.rstrip('.git')}#{commit_hash}"
+
+            history.append(
+                {
+                    "version": str(i + 1),
+                    "updated_by": author.strip(),
+                    "last_updated": date.strip(),
+                    "commitHash": commit_hash,
+                    "sourceRepo": source_repo,
+                    "action": "imported",
+                    "message": commit_msg.strip(),
+                }
+            )
+
+        return history
+
+    except (subprocess.SubprocessError, OSError) as e:
+        log.debug(f"Error getting git history for {file_path}: {e}")
+        return []
+
+
 def _load_counter(repo_dir: Path) -> int:
     """Load next document ID counter."""
     counter_path = repo_dir / ".doc_id_counter.json"
@@ -88,8 +226,8 @@ def _load_counter(repo_dir: Path) -> int:
             data = json.loads(counter_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return int(data.get("next_id", 1001))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            log.debug(f"Error reading counter file {counter_path}: {e}")
     return 1001
 
 
@@ -118,7 +256,8 @@ def _load_meta(path: Path) -> dict:
     if meta_path.exists():
         try:
             return json.loads(meta_path.read_text(encoding="utf-8")) or {}
-        except Exception:
+        except (json.JSONDecodeError, OSError) as e:
+            log.debug(f"Error reading meta file {meta_path}: {e}")
             return {}
     return {"version_history": []}
 
@@ -209,7 +348,8 @@ def _collect_existing_ids(repo_dir: Path, category: str) -> dict[str, Path]:
             did = meta.get("documentId", "")
             if did:
                 ids[did] = md_file
-        except Exception:
+        except (json.JSONDecodeError, OSError) as e:
+            log.debug(f"Error reading meta file {md_file}: {e}")
             continue
     return ids
 
@@ -315,7 +455,7 @@ class DocCreate:
             print(f"  Auto-assigned documentId: {document_id}")
 
         # Collect git info
-        author, date = _git_info()
+        author, _ = _git_info()  # We only need the author
         today = datetime.now(UTC).strftime("%Y-%m-%d")
 
         # Build .meta.json
@@ -630,11 +770,35 @@ class DocImport:
                 document_id = _next_id(repo_dir, skip_ids, save=not self.dry_run)
                 log.info(f"Auto-assigned documentId: {document_id}")
 
-        # Enrich with git history for source file
-        git_history = _get_file_history(repo_dir, source_path)
-        author = git_history[0] if git_history else None
-        date = git_history[1] if git_history else None
+        # Get author for the current file (who is importing)
+        import_author, _ = _git_info()  # We only need the author
         today = datetime.now(UTC).strftime("%Y-%m-%d")
+
+        # Define source_meta_path early
+        source_meta_path = source_path.with_suffix(".meta.json")
+
+        # For the first version_history entry, use the original author if available
+        original_author = None
+        original_date = None
+        if not self.skip_history:
+            if source_meta_path.exists():
+                # If importing from .meta.json, use its history
+                try:
+                    source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
+                    history = source_meta_data.get("version_history") or []
+                    if history:
+                        first_entry = history[0]  # Oldest entry
+                        original_author = first_entry.get("updated_by")
+                        original_date = first_entry.get("last_updated")
+                except (json.JSONDecodeError, FileNotFoundError):
+                    pass
+            else:
+                # If importing from git history, use the oldest commit
+                git_history = _get_git_history(source_path)
+                if git_history:
+                    first_entry = git_history[0]  # Oldest entry
+                    original_author = first_entry.get("updated_by")
+                    original_date = first_entry.get("last_updated")
 
         # Determine target path
         target_dir = repo_dir / CAT_DIR_MAP.get(self.category, f"docs/{self.category}")
@@ -699,41 +863,52 @@ class DocImport:
             "documentId": document_id,
             "status": "active",
             "version": "0",
-            "lastUpdated": date or today,
-            "updatedBy": author or _git_info()[0],
+            "lastUpdated": today,  # Current date when imported
+            "updatedBy": import_author,  # Person importing the document (will be updated by CI)
+            "originalAuthor": original_author,  # Original author from source (preserved)
+            "originalDate": original_date,  # Original date from source (preserved)
             "reviewer": [],
-            "commitHash": "",
-            "prNumber": "",
+            "commitHash": "",  # Will be filled by CI
+            "prNumber": "",  # Will be filled by CI
             "version_history": [],
         }
 
-        # Merge version_history from source .meta.json
-        source_meta_path = source_path.with_suffix(".meta.json")
-        if not self.skip_history and source_meta_path.exists():
-            try:
-                source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
-                history = source_meta_data.get("version_history") or []
+        # If this is a new import, populate version_history with source history
+        if not self.skip_history:
+            if source_meta_path.exists():
+                try:
+                    source_meta_data = json.loads(source_meta_path.read_text(encoding="utf-8")) or {}
+                    history = source_meta_data.get("version_history") or []
 
-                # Preserve title/description from source if available
-                if source_meta_data.get("title"):
-                    meta_json["title"] = source_meta_data["title"]
-                if source_meta_data.get("description"):
-                    meta_json["description"] = source_meta_data["description"]
+                    # Preserve title/description from source if available
+                    if source_meta_data.get("title"):
+                        meta_json["title"] = source_meta_data["title"]
+                    if source_meta_data.get("description"):
+                        meta_json["description"] = source_meta_data["description"]
 
-                meta_json["version_history"] = _merge_version_history(
-                    target_path, history, skip_existing=self.skip_existing
-                )
-                imported = len([e for e in meta_json["version_history"] if e.get("action") == "imported"])
-                log.info(f"  version_history: {imported} entries imported")
-            except (json.JSONDecodeError, FileNotFoundError):
-                meta_json["version_history"] = []
-                log.info("  version_history: no valid source .meta.json found")
-        else:
-            meta_json["version_history"] = []
-            if self.skip_history:
-                log.info("  version_history: skipped (--skip-history)")
+                    meta_json["version_history"] = _merge_version_history(
+                        target_path, history, skip_existing=self.skip_existing
+                    )
+                    imported = len([e for e in meta_json["version_history"] if e.get("action") == "imported"])
+                    log.info(f"  version_history: {imported} entries imported from .meta.json")
+                except (json.JSONDecodeError, FileNotFoundError):
+                    # If no source .meta.json, try git history
+                    git_history = _get_git_history(source_path)
+                    if git_history:
+                        meta_json["version_history"] = git_history
+                        log.info(f"  version_history: {len(git_history)} entries imported from git history")
+                    else:
+                        log.info("  version_history: no source .meta.json or git history found")
             else:
-                log.info("  version_history: no source .meta.json found")
+                # No source .meta.json, try git history
+                git_history = _get_git_history(source_path)
+                if git_history:
+                    meta_json["version_history"] = git_history
+                    log.info(f"  version_history: {len(git_history)} entries imported from git history")
+                else:
+                    log.info("  version_history: no source .meta.json or git history found")
+        else:
+            log.info("  version_history: skipped (--skip-history)")
 
         # Write plain markdown file (no frontmatter)
         _write_md_file(target_path, meta_json["title"], meta_json.get("description", ""), body)
