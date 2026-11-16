@@ -346,6 +346,26 @@ uv run ruff check .   # lint
 uv run ruff format .  # format
 ```
 
+### Testing
+
+The tests create a real documentation repository with `versioned-md create` and drive it through
+pull requests. The CI workflows in `versioned_md/templates/.github/workflows/` are executed step by
+step like on a GitHub runner, against a small fake GitHub API (see `tests/workflow_runner.py`).
+
+```bash
+uv run pytest
+```
+
+The `update-metadata` workflow uses GNU `grep -P`, as available on GitHub's Ubuntu runners, so those
+tests are skipped on macOS. Run the full suite on Linux in Docker:
+
+```bash
+docker build --target test -t versioned-md-test . && docker run --rm versioned-md-test
+```
+
+Tests marked `xfail` document known bugs; they start failing (strict) once a bug is fixed, and the
+marker should then be removed.
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.

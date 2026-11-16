@@ -1,5 +1,7 @@
 """GitHub API helper for fetching approved reviewers of a pull request."""
 
+import os
+
 import requests
 
 
@@ -15,7 +17,9 @@ def fetch_reviewers(pr_number: int, repo: str, token: str) -> list[str]:
         A list of login strings, e.g. ``["alice", "bob"]``.
         Returns an empty list if the API call fails.
     """
-    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+    # GITHUB_API_URL is set by GitHub Actions (and GitHub Enterprise); tests point it at a fake server
+    api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    url = f"{api_url}/repos/{repo}/pulls/{pr_number}/reviews"
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
