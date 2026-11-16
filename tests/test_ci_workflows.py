@@ -70,7 +70,7 @@ def test_check_header_rejects_reviewer_not_in_people_json(docs_repo):
     assert "Approved reviewer 'mallory' is not listed in people.json" in result.output
 
 
-def test_check_header_rejects_changed_protected_field(docs_repo):
+def test_check_header_rejects_changed_protected_field(docs_repo, gnu_grep):
     md_path = merge_new_draft(docs_repo)
     edit_on_branch(docs_repo, "bump-version", md_path)
     meta = docs_repo.read_meta(md_path)
@@ -85,7 +85,7 @@ def test_check_header_rejects_changed_protected_field(docs_repo):
     assert "'version' changed" in result.output or "Protected field 'version'" in result.output
 
 
-def test_check_header_rejects_added_history_entry(docs_repo):
+def test_check_header_rejects_added_history_entry(docs_repo, gnu_grep):
     md_path = merge_new_draft(docs_repo)
     edit_on_branch(docs_repo, "fake-history", md_path)
     meta = docs_repo.read_meta(md_path)
@@ -100,7 +100,7 @@ def test_check_header_rejects_added_history_entry(docs_repo):
     assert "New version entries added to version_history: 2" in result.output
 
 
-def test_check_header_rejects_rewritten_history_author(docs_repo):
+def test_check_header_rejects_rewritten_history_author(docs_repo, gnu_grep):
     md_path = merge_new_draft(docs_repo)
     edit_on_branch(docs_repo, "rewrite-history", md_path)
     meta = docs_repo.read_meta(md_path)
@@ -115,7 +115,7 @@ def test_check_header_rejects_rewritten_history_author(docs_repo):
     assert "'updated_by' changed" in result.output
 
 
-def test_check_header_allows_editing_document_body(docs_repo):
+def test_check_header_allows_editing_document_body(docs_repo, gnu_grep):
     md_path = merge_new_draft(docs_repo)
     edit_on_branch(docs_repo, "edit-body", md_path)
     docs_repo.commit_all("Edit body")
@@ -130,7 +130,7 @@ def test_check_header_allows_editing_document_body(docs_repo):
     strict=True,
     reason="README: all fields of existing history entries are locked; only version and updated_by are checked",
 )
-def test_check_header_rejects_rewritten_history_date(docs_repo):
+def test_check_header_rejects_rewritten_history_date(docs_repo, gnu_grep):
     md_path = merge_new_draft(docs_repo)
     edit_on_branch(docs_repo, "rewrite-date", md_path)
     meta = docs_repo.read_meta(md_path)
@@ -145,7 +145,7 @@ def test_check_header_rejects_rewritten_history_date(docs_repo):
 
 
 @pytest.mark.xfail(strict=True, reason="README: mutable fields may only change together with the body; not checked")
-def test_check_header_rejects_title_change_without_body_change(docs_repo):
+def test_check_header_rejects_title_change_without_body_change(docs_repo, gnu_grep):
     md_path = merge_new_draft(docs_repo)
     docs_repo.start_branch("rename-only")
     meta = docs_repo.read_meta(md_path)
