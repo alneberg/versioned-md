@@ -42,7 +42,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
-        run: pip install pyyaml requests
+        run: pip install pyyaml requests jsonschema
 
       - name: Update metadata
         env:
